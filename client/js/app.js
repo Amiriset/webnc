@@ -83,6 +83,7 @@ export function NortonCommander() {
     "Enter":"navigate","Tab":"switch_panel","Insert":"select","+":"select_group","-":"deselect_group","*":"invert_selection","Backspace":"go_up",
     "ArrowUp":"up","ArrowDown":"down","Home":"home","End":"end","PageUp":"page_up","PageDown":"page_down"
   });
+  const [activeTarget, setActiveTarget] = useState("panels");
   const [helpDlg, setHelpDlg] = useState(null);
   const [archiveDlg, setArchiveDlg] = useState(null);
   const [loginDlg, setLoginDlg] = useState(null);
@@ -350,6 +351,7 @@ export function NortonCommander() {
   useEffect(() => {
     if (viewer || editorDlg || dialog || inputDlg || infoDlg || driveDlg || searchDlg || sysInfoDlg || compareDlg || syncDlg || historyDlg || configDlg || timeoutsDlg || helpDlg || archiveDlg || loginDlg) return;
     const handler = async (e) => {
+      if (activeTarget === "terminal") return;
       const { items, idx, setIdx, path, selected, setSelected } = activePanel === "left"
         ? { items: leftItems, idx: leftIdx, setIdx: setLeftIdx, path: leftPath, selected: leftSelected, setSelected: setLeftSelected }
         : { items: rightItems, idx: rightIdx, setIdx: setRightIdx, path: rightPath, selected: rightSelected, setSelected: setRightSelected };
@@ -374,7 +376,7 @@ export function NortonCommander() {
           case "PageUp": e.preventDefault(); moveTree(Math.max(0, treeCur - 15)); break;
           case "PageDown": e.preventDefault(); moveTree(Math.min(treeNodes.length - 1, treeCur + 15)); break;
           case "Enter": e.preventDefault(); if (treeNode) { toggleTreeNode(activePanel, treeNode); treeNavigateOpposite(activePanel, treeNode.path); } break;
-          case "Tab": e.preventDefault(); setActivePanel((p) => (p === "left" ? "right" : "left")); break;
+          case "Tab": e.preventDefault(); if (activeTarget === "terminal") { setActiveTarget("panels"); setActivePanel("left"); } else if (activePanel === "right") { setActiveTarget("terminal"); } else { setActivePanel((p) => (p === "left" ? "right" : "left")); } break;
           default: return;
         }
         return;
@@ -394,7 +396,7 @@ export function NortonCommander() {
         page_down: () => setIdx(Math.min(items.length - 1, idx + 15)),
         fullscreen: toggleFullscreen,
         navigate: () => { if (item) navigate(item, activePanel); },
-        switch_panel: () => setActivePanel((p) => (p === "left" ? "right" : "left")),
+        switch_panel: () => { if (activeTarget === "terminal") { setActiveTarget("panels"); setActivePanel("left"); } else if (activePanel === "right") { setActiveTarget("terminal"); } else { setActivePanel((p) => (p === "left" ? "right" : "left")); } },
         select: () => { if (item && !item._isParent) { setSelected((prev) => { const n = new Set(prev); n.has(item.path) ? n.delete(item.path) : n.add(item.path); return n; }); setIdx(Math.min(items.length - 1, idx + 1)); } },
         select_group: () => setInputDlg({ title: "Select Group", label: "Enter file pattern to select:", defaultValue: "*.*", onOk: (pat) => { setInputDlg(null); setSelected((prev) => { const n = new Set(prev); items.forEach((i) => { if (!i._isParent && fnmatch(pat, i.name)) n.add(i.path); }); return n; }); }, onCancel: () => setInputDlg(null) }),
         deselect_group: () => setInputDlg({ title: "Deselect Group", label: "Enter file pattern to deselect:", defaultValue: "*.*", onOk: (pat) => { setInputDlg(null); setSelected((prev) => { const n = new Set(prev); items.forEach((i) => { if (!i._isParent && fnmatch(pat, i.name)) n.delete(i.path); }); return n; }); }, onCancel: () => setInputDlg(null) }),
@@ -417,7 +419,7 @@ export function NortonCommander() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activePanel, leftItems, rightItems, leftIdx, rightIdx, leftPath, rightPath, leftSelected, rightSelected, leftViewMode, rightViewMode, leftTreeNodes, rightTreeNodes, leftTreeCursor, rightTreeCursor, viewer, editorDlg, dialog, inputDlg, infoDlg, driveDlg, searchDlg, sysInfoDlg, compareDlg, syncDlg, historyDlg, configDlg, timeoutsDlg, helpDlg, archiveDlg, loginDlg, leftPanelVisible, rightPanelVisible, navigate, fetchDir, toggleFullscreen, refreshBoth, handleSearchResults, handleLogout, treeNavigateOpposite, toggleTreeNode, keyBindings, apiView, apiInfo, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, setStatusMsg, setOpenMenu, setViewer, setEditorDlg, setInfoDlg, setSearchDlg, setHelpDlg, setInputDlg, setDialog, setLeftIdx, setRightIdx, setLeftSelected, setRightSelected, setLeftTreeCursor, setRightTreeCursor, setActivePanel]);
+  }, [activePanel, leftItems, rightItems, leftIdx, rightIdx, leftPath, rightPath, leftSelected, rightSelected, leftViewMode, rightViewMode, leftTreeNodes, rightTreeNodes, leftTreeCursor, rightTreeCursor, viewer, editorDlg, dialog, inputDlg, infoDlg, driveDlg, searchDlg, sysInfoDlg, compareDlg, syncDlg, historyDlg, configDlg, timeoutsDlg, helpDlg, archiveDlg, loginDlg, leftPanelVisible, rightPanelVisible, navigate, fetchDir, toggleFullscreen, refreshBoth, handleSearchResults, handleLogout, treeNavigateOpposite, toggleTreeNode, keyBindings, apiView, apiInfo, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, setStatusMsg, setOpenMenu, setViewer, setEditorDlg, setInfoDlg, setSearchDlg, setHelpDlg, setInputDlg, setDialog, setLeftIdx, setRightIdx, setLeftSelected, setRightSelected, setLeftTreeCursor, setRightTreeCursor, setActivePanel, activeTarget]);
 
   // ── Fetch keybindings from config ───────────────────────────────────────────
   useEffect(() => {
@@ -426,7 +428,7 @@ export function NortonCommander() {
 
   // ── Ctrl+O ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const handler = (e) => { if (e.ctrlKey && (e.key === "o" || e.key === "O")) { e.preventDefault(); setLeftPanelVisible((p) => !p); setRightPanelVisible((p) => !p); } };
+    const handler = (e) => { if (e.ctrlKey && (e.key === "o" || e.key === "O")) { e.preventDefault(); const newVal = !leftPanelVisible; setLeftPanelVisible(newVal); setRightPanelVisible(newVal); setActiveTarget(newVal ? "panels" : "terminal"); } };
     document.addEventListener("keydown", handler, { capture: true });
     return () => document.removeEventListener("keydown", handler, { capture: true });
   }, []);
@@ -561,34 +563,40 @@ export function NortonCommander() {
               }))))),
       h("span", { style: { color: "#555599" } }, `WebNC${diskInfo ? ` │ ${fmtSize(diskInfo.free)} free (${diskInfo.percent_used}% used)` : ""}`)),
 
-    // ── Panels ──────────────────────────────────────────────────────────────
-    bothVisible ?
-      h("div", { className: "flex gap-4", style: { minHeight: 0, flex: "1 1 0%", overflow: "hidden" } },
-        leftPanelVisible ? h(Panel, { path: leftPath, items: leftItems, selectedIdx: leftIdx, active: activePanel === "left", selected: leftSelected, loading: leftLoading, error: leftError, viewMode: leftViewMode, preview: leftPreview, infoData: leftInfoData, treeNodes: leftTreeNodes, treeCursor: leftTreeCursor, searchQuery: leftSearchQuery, onTreeToggle: (node) => toggleTreeNode("left", node), onTreeNavigate: (p) => treeNavigateOpposite("left", p), onSelect: (i) => { setLeftIdx(i); setActivePanel("left"); }, onActivate: () => setActivePanel("left"), onNavigate: (item) => navigate(item, "left") }) :
-          h("div", { className: "flex-1 flex", style: { alignItems: "center", justifyContent: "center", border: "2px solid #0055AA", background: "#000040", color: "#004488", fontSize: 13 } }, "*** Panel Off ***"),
-        rightPanelVisible ? h(Panel, { path: rightPath, items: rightItems, selectedIdx: rightIdx, active: activePanel === "right", selected: rightSelected, loading: rightLoading, error: rightError, viewMode: rightViewMode, preview: rightPreview, infoData: rightInfoData, treeNodes: rightTreeNodes, treeCursor: rightTreeCursor, searchQuery: rightSearchQuery, onTreeToggle: (node) => toggleTreeNode("right", node), onTreeNavigate: (p) => treeNavigateOpposite("right", p), onSelect: (i) => { setRightIdx(i); setActivePanel("right"); }, onActivate: () => setActivePanel("right"), onNavigate: (item) => navigate(item, "right") }) :
-          h("div", { className: "flex-1 flex", style: { alignItems: "center", justifyContent: "center", border: "2px solid #0055AA", background: "#000040", color: "#004488", fontSize: 13 } }, "*** Panel Off ***")) :
-      null,
+    // ── Main area (panels overlay terminal) ────────────────────────────────
+    h("div", { style: { position: "relative", flex: "1 1 0%", minHeight: 0 } },
 
-    // ── Terminal output ──────────────────────────────────────────────────────
-    h("div", { ref: termRef, className: "flex-col", style: { flex: bothVisible ? "0 1 auto" : "1 1 0%", minHeight: bothVisible ? 60 : 0, overflowY: "auto", background: "#000", borderTop: "1px solid #0055AA", padding: bothVisible ? "2px 8px" : "4px 8px" } },
-      cmdHistory.length === 0 && bothVisible
-        ? h("span", { style: { color: "#333", fontSize: 11, fontStyle: "italic" } }, "Type a command and press Enter")
-        : cmdHistory.map((h_, i) =>
-            h("div", { key: i, style: { marginBottom: 3 } },
-              h("div", { style: { color: "#FFFF55", fontSize: 11 } }, h_.cmd),
-              h("div", { style: { color: "#AAAAAA", fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all" } }, h_.stdout || `(exit code ${h_.returncode})`)))),
+      // Terminal (always fills the wrapper, covered by panels when visible)
+      h("div", { ref: termRef, className: "flex-col", style: { position: "relative", zIndex: 1, height: "100%", overflowY: "auto", background: "#000", borderTop: activeTarget === "terminal" ? "1px solid #00FFFF" : "1px solid #0055AA", padding: "2px 8px" }, onClick: () => setActiveTarget("terminal") },
+        cmdHistory.length === 0 && bothVisible
+          ? null
+          : cmdHistory.length === 0
+            ? h("span", { style: { color: "#333", fontSize: 11, fontStyle: "italic" } }, "Type a command and press Enter")
+            : cmdHistory.map((h_, i) =>
+                h("div", { key: i, style: { marginBottom: 3 } },
+                  h("div", { style: { color: "#FFFF55", fontSize: 11 } }, h_.cmd),
+                  h("div", { style: { color: "#AAAAAA", fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-all" } }, h_.stdout || `(exit code ${h_.returncode})`)))),
 
-    // ── Command line ────────────────────────────────────────────────────────
-    h("div", { className: "flex", style: { alignItems: "center", background: "#000", padding: "3px 8px", borderTop: "1px solid #0055AA" } },
+      // Panels (absolutely positioned on top of terminal)
+      bothVisible
+        ? h("div", { className: "flex gap-4", style: { position: "absolute", inset: 0, zIndex: 10, overflow: "hidden" }, onClick: () => setActiveTarget("panels") },
+            leftPanelVisible ? h(Panel, { path: leftPath, items: leftItems, selectedIdx: leftIdx, active: activePanel === "left", selected: leftSelected, loading: leftLoading, error: leftError, viewMode: leftViewMode, preview: leftPreview, infoData: leftInfoData, treeNodes: leftTreeNodes, treeCursor: leftTreeCursor, searchQuery: leftSearchQuery, onTreeToggle: (node) => toggleTreeNode("left", node), onTreeNavigate: (p) => treeNavigateOpposite("left", p), onSelect: (i) => { setLeftIdx(i); setActivePanel("left"); }, onActivate: () => setActivePanel("left"), onNavigate: (item) => navigate(item, "left") }) :
+              h("div", { className: "flex-1 flex", style: { alignItems: "center", justifyContent: "center", border: "2px solid #0055AA", background: "#000040", color: "#004488", fontSize: 13 } }, "*** Panel Off ***"),
+            rightPanelVisible ? h(Panel, { path: rightPath, items: rightItems, selectedIdx: rightIdx, active: activePanel === "right", selected: rightSelected, loading: rightLoading, error: rightError, viewMode: rightViewMode, preview: rightPreview, infoData: rightInfoData, treeNodes: rightTreeNodes, treeCursor: rightTreeCursor, searchQuery: rightSearchQuery, onTreeToggle: (node) => toggleTreeNode("right", node), onTreeNavigate: (p) => treeNavigateOpposite("right", p), onSelect: (i) => { setRightIdx(i); setActivePanel("right"); }, onActivate: () => setActivePanel("right"), onNavigate: (item) => navigate(item, "right") }) :
+              h("div", { className: "flex-1 flex", style: { alignItems: "center", justifyContent: "center", border: "2px solid #0055AA", background: "#000040", color: "#004488", fontSize: 13 } }, "*** Panel Off ***")) : null),
+
+     // ── Command line ────────────────────────────────────────────────────────
+    h("div", { className: "flex", style: { alignItems: "center", background: "#000", padding: "3px 8px", borderTop: activeTarget === "terminal" ? "1px solid #00FFFF" : "1px solid #0055AA" } },
       h("span", { style: { color: "#AAAAAA", fontSize: 12 } }, toWinPath(activePanel === "left" ? leftPath : rightPath) + ">"),
       (() => { const f = activePanel === "left" ? leftFilter : rightFilter; return f !== "*" ? h("span", { className: "text-yellow", style: { fontSize: 12, marginLeft: 6 } }, `[${f}]`) : null; })(),
-      h("input", { type: "text", value: cmdLine, onChange: (e) => setCmdLine(e.target.value), onKeyDown: (e) => { if (e.key === "Enter") handleCmdEnter(); }, style: { background: "transparent", border: "none", color: "#AAAAAA", fontSize: 12, outline: "none", flex: 1, marginLeft: 2, caretColor: "#AAAAAA" }, autoFocus: true })),
+      h("input", { type: "text", value: cmdLine, onChange: (e) => setCmdLine(e.target.value), onClick: () => setActiveTarget("terminal"), onKeyDown: (e) => { if (activeTarget !== "terminal" && keyBindings[e.key]) { e.preventDefault(); return; } if (e.key === "Enter" && (activeTarget === "terminal" || !bothVisible)) { e.preventDefault(); handleCmdEnter(); } }, style: { background: "transparent", border: "none", color: "#AAAAAA", fontSize: 12, outline: "none", flex: 1, marginLeft: 2, caretColor: "#AAAAAA" }, autoFocus: true })),
 
     // ── Status bar ──────────────────────────────────────────────────────────
     h("div", { className: "flex", style: { background: connected ? "#000040" : "#440000", color: connected ? "#00AAAA" : "#FF5555", padding: "2px 10px", fontSize: 11, borderTop: "1px solid #0055AA", justifyContent: "space-between" } },
       h("span", null, statusMsg),
-      h("span", { style: { color: "#006688" } }, "↑↓ Enter Ins Tab Alt+F1/F2 F1-F8 · Ctrl+O · Click menu bar")),
+      h("span", { style: { color: "#006688", display: "flex", gap: 8 } },
+        h("span", { style: { color: activeTarget === "terminal" ? "#00FF00" : "#006688" } }, "Cmd"),
+        "↑↓ Enter Ins Tab Alt+F1/F2 F1-F8 · Ctrl+O · Click menu bar")),
 
     // ── Fn bar ──────────────────────────────────────────────────────────────
     h("div", { className: "flex", style: { background: "#000", borderTop: "1px solid #0055AA" } }, fnButtons.map(({ key, label }) =>
