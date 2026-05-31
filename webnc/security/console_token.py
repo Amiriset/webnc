@@ -1,12 +1,12 @@
 import hashlib
 import secrets
+import sys
 import time
 from typing import Optional
 
 from webnc.logging_config import logger
 from webnc.models.auth import UserInfo
 from webnc.security.auth_provider import AuthProvider
-
 
 class ConsoleTokenProvider(AuthProvider):
     """Zero-knowledge token auth: SHA-256(nonce + ts + secret) handshake."""
@@ -18,10 +18,17 @@ class ConsoleTokenProvider(AuthProvider):
         logger.info("SECURITY: Admin access token for this session:")
         logger.info(self.token)
         logger.info(
+        print("=" * 60, file=sys.stderr)
+        print("SECURITY: Admin access token for this session:", file=sys.stderr)
+        print(self.token, file=sys.stderr)
+        print(
             "Paste this token when prompted in the browser, "
             "or append #token=<TOKEN> to the URL."
+            "or append #token=<TOKEN> to the URL.",
+            file=sys.stderr,
         )
         logger.info("=" * 60)
+        print("=" * 60, file=sys.stderr)
 
     async def authenticate(self, request) -> Optional[UserInfo]:
         nonce = request.headers.get("X-NC-Nonce")
