@@ -10,7 +10,8 @@ param(
 $ScriptDir = $PSScriptRoot
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $PidFile = Join-Path $ProjectRoot "server.pid"
-$LogFile = Join-Path $ProjectRoot "logs" "server.log"
+$LogDir = Join-Path $ProjectRoot "logs"
+$LogFile = Join-Path $LogDir "server.log"
 $Scheme = if ($Insecure) { "http" } else { "https" }
 $ServerUrl = "$Scheme`://127.0.0.1:$Port"
 
