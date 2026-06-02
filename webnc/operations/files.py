@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 import fnmatch
 import hashlib
 import os
@@ -14,6 +16,157 @@ from webnc.logging_config import logger
 from webnc.models.files import FileInfo
 from webnc.operations.base import AbstractOperation, OperationResult, OperationStatus
 from webnc.vfs.paths import safe_path, relative_path
+
+
+# ── Windows security helpers ──────────────────────────────────────────────────
+
+def _get_windows_owner(p: Path) -> str:
+    """Return the Windows owner name (DOMAIN\\User) for a file/directory."""
+    try:
+        advapi32 = ctypes.windll.advapi32
+        kernel32 = ctypes.windll.kernel32
+
+        # Convert path to wide string
+        path_w = ctypes.create_unicode_buffer(str(p))
+
+        # First call to get the required buffer size
+        sec_desc = ctypes.c_void_p()
+        sec_desc_size = ctypes.wintypes.DWORD(0)
+
+        # Need READ_CONTROL to read owner
+        # OWNER_SECURITY_INFORMATION
+        result = advapi32.GetFileSecurityW(
+            path_w,
+            0x1,
+            ctypes.byref(sec_desc),
+            sec_desc_size,
+            ctypes.byref(sec_desc_size)
+        )
+        if not result and ctypes.GetLastError() != 122:  # ERROR_INSUFFICIENT_BUFFER
+            return "unknown"
+
+        buf = ctypes.create_string_buffer(sec_desc_size.value)
+        result = advapi32.GetFileSecurityW(
+            path_w,
+            0x1,
+            buf,
+            sec_desc_size,
+            ctypes.byref(sec_desc_size)
+        )
+        if not result:
+            return "unknown"
+
+        # Get owner SID from security descriptor
+        owner_sid = ctypes.c_void_p()
+        defaulted = ctypes.wintypes.BOOL()
+        result = advapi32.GetSecurityDescriptorOwner(
+            buf,
+            ctypes.byref(owner_sid),
+            ctypes.byref(defaulted)
+        )
+        if not result or not owner_sid:
+            return "unknown"
+
+        # Lookup account name from SID
+        name_len = ctypes.wintypes.DWORD(0)
+        domain_len = ctypes.wintypes.DWORD(0)
+        snu = ctypes.wintypes.DWORD()
+
+        # First call to get buffer sizes
+        advapi32.LookupAccountSidW(
+            None,
+            owner_sid,
+            None,
+            ctypes.byref(name_len),
+            None,
+            ctypes.byref(domain_len),
+            ctypes.byref(snu)
+        )
+
+        name_buf = ctypes.create_unicode_buffer(name_len.value)
+        domain_buf = ctypes.create_unicode_buffer(domain_len.value)
+        result = advapi32.LookupAccountSidW(
+            None,
+            owner_sid,
+            name_buf,
+            ctypes.byref(name_len),
+            domain_buf,
+            ctypes.byref(domain_len),
+            ctypes.byref(snu)
+        )
+        if result:
+            domain = domain_buf.value
+            name = name_buf.value
+            return f"{domain}\\{name}" if domain else name
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _get_windows_permissions(p: Path) -> str:
+    """Return a permission string for a file/directory on Windows.
+    
+    Format: 10 chars like POSIX but derived from Windows attributes:
+      char 0: '-' (file) or 'd' (directory)
+      chars 1-3: owner (based on read-only attribute)
+      chars 4-9: group/other (heuristic based on ACL)
+    Falls back to st_mode on failure.
+    """
+    try:
+        is_dir = p.is_dir()
+        try:
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(str(p))
+            if attrs == 0xFFFFFFFF:
+                raise OSError("GetFileAttributesW failed")
+        except Exception:
+            return _fallback_perms(p)
+
+        readonly = bool(attrs & 0x00000001)   # FILE_ATTRIBUTE_READONLY
+        hidden   = bool(attrs & 0x00000002)   # FILE_ATTRIBUTE_HIDDEN
+        system   = bool(attrs & 0x00000004)   # FILE_ATTRIBUTE_SYSTEM
+        archive  = bool(attrs & 0x00000020)   # FILE_ATTRIBUTE_ARCHIVE
+
+        prefix = "d" if is_dir else "-"
+
+        # Owner permissions
+        owner_r = "r" if not readonly else "-"
+        owner_w = "w" if not readonly else "-"
+        owner_x = "x" if is_dir else "-"
+
+        # Group — same as owner on Windows (no concept of group perms)
+        group_r = owner_r
+        group_w = owner_w
+        group_x = owner_x
+
+        # Other — usually more restrictive
+        other_r = "r" if (not readonly or hidden) else "-"
+        other_w = "-"  # write for others is rare on Windows
+        other_x = "x" if is_dir else "-"
+
+        return f"{prefix}{owner_r}{owner_w}{owner_x}{group_r}{group_w}{group_x}{other_r}{other_w}{other_x}"
+    except Exception:
+        return _fallback_perms(p)
+
+
+def _fallback_perms(p: Path) -> str:
+    """Fallback: use synthetic st_mode on Windows."""
+    try:
+        st = p.stat()
+        mode = st.st_mode
+        is_dir = p.is_dir()
+        perms = "d" if is_dir else "-"
+        perms += "r" if (mode & 0o400) else "-"
+        perms += "w" if (mode & 0o200) else "-"
+        perms += "x" if (mode & 0o100 and is_dir) else "-"
+        perms += "r" if (mode & 0o040) else "-"
+        perms += "w" if (mode & 0o020) else "-"
+        perms += "x" if (mode & 0o010 and is_dir) else "-"
+        perms += "r" if (mode & 0o004) else "-"
+        perms += "w" if (mode & 0o002) else "-"
+        perms += "x" if (mode & 0o001 and is_dir) else "-"
+        return perms
+    except OSError:
+        return "-" * 10
 
 
 class CopyOperation(AbstractOperation[dict]):
@@ -277,11 +430,9 @@ def _build_file_info(p: Path) -> dict:
     try:
         st = p.stat()
         mod_time = datetime.fromtimestamp(st.st_mtime)
-        perms = "-" * 10
         st_size = st.st_size
     except OSError:
         mod_time = datetime.now()
-        perms = "-" * 10
         st_size = 0
         st = None
 
@@ -292,7 +443,8 @@ def _build_file_info(p: Path) -> dict:
         size=st_size if st and not p.is_dir() else 0,
         modified=mod_time.isoformat(),
         modified_ts=st.st_mtime if st else 0,
-        permissions=perms,
+        owner=None,
+        permissions=_get_windows_permissions(p),
         extension=p.suffix.lower().lstrip(".") if not p.is_dir() else "",
     ).model_dump()
 
@@ -472,11 +624,14 @@ class FileInfoOperation(AbstractOperation[dict]):
         info = _build_file_info(target)
         st = target.stat()
 
+        # Enrich with real Windows security info (only here, not in _build_file_info)
+        info["owner"] = _get_windows_owner(target)
+        info["permissions"] = _get_windows_permissions(target)
+
         extra = {
             **info,
             "absolute_path": str(target.resolve()),
             "is_symlink": target.is_symlink(),
-            "owner": "unknown",
             "created": datetime.fromtimestamp(st.st_ctime).isoformat(),
             "accessed": datetime.fromtimestamp(st.st_atime).isoformat(),
         }

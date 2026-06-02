@@ -10,6 +10,7 @@ class FileInfo(BaseModel):
     size: int
     modified: str
     modified_ts: float
+    owner: Optional[str] = None
     permissions: str
     extension: str
 
