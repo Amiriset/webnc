@@ -14,10 +14,6 @@ class ConsoleTokenProvider(AuthProvider):
     def __init__(self):
         self.token = secrets.token_hex(32)
         self._used_nonces: set = set()
-        logger.info("=" * 60)
-        logger.info("SECURITY: Admin access token for this session:")
-        logger.info(self.token)
-        logger.info(
         print("=" * 60, file=sys.stderr)
         print("SECURITY: Admin access token for this session:", file=sys.stderr)
         print(self.token, file=sys.stderr)
