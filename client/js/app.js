@@ -43,6 +43,7 @@ export function NortonCommander() {
   const [statusMsg, setStatusMsg] = useState("Connecting...");
   const [diskInfo, setDiskInfo] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
 
   // ── Per-panel state ───────────────────────────────────────────────────────
   const [leftSortBy, setLeftSortBy] = useState("name");
@@ -129,7 +130,8 @@ export function NortonCommander() {
   useEffect(() => {
     (async () => {
       try {
-        await api("GET", "/api/health");
+        const health = await api("GET", "/api/health");
+        setAppVersion(health.version || "");
         setConnected(true); setStatusMsg("Ready");
         const disk = await apiDisk("/C/"); setDiskInfo(disk);
         setLeftSortBy(config.defaultSortBy); setLeftSortDir(config.defaultSortDir);
@@ -595,6 +597,7 @@ export function NortonCommander() {
     h("div", { className: "flex", style: { background: connected ? "#000040" : "#440000", color: connected ? "#00AAAA" : "#FF5555", padding: "2px 10px", fontSize: 11, borderTop: "1px solid #0055AA", justifyContent: "space-between" } },
       h("span", null, statusMsg),
       h("span", { style: { color: "#006688", display: "flex", gap: 8 } },
+        appVersion ? h("span", { style: { color: "#555599" } }, `v${appVersion}`) : null,
         h("span", { style: { color: activeTarget === "terminal" ? "#00FF00" : "#006688" } }, "Cmd"),
         "↑↓ Enter Ins Tab Alt+F1/F2 F1-F8 · Ctrl+O · Click menu bar")),
 
