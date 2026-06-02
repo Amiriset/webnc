@@ -4,7 +4,6 @@ import sys
 import time
 from typing import Optional
 
-from webnc.logging_config import logger
 from webnc.models.auth import UserInfo
 from webnc.security.auth_provider import AuthProvider
 
@@ -19,11 +18,9 @@ class ConsoleTokenProvider(AuthProvider):
         print(self.token, file=sys.stderr)
         print(
             "Paste this token when prompted in the browser, "
-            "or append #token=<TOKEN> to the URL."
             "or append #token=<TOKEN> to the URL.",
             file=sys.stderr,
         )
-        logger.info("=" * 60)
         print("=" * 60, file=sys.stderr)
 
     async def authenticate(self, request) -> Optional[UserInfo]:
