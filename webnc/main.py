@@ -12,8 +12,13 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Suppress noisy asyncio proactor warnings on Windows client disconnect
-warnings.filterwarnings("ignore", message=".*_ProactorBasePipeTransport.*")
+# Windows: patch uvicorn's loop factory to use SelectorEventLoop instead of
+# ProactorEventLoop, avoiding ConnectionResetError crashes on client disconnect
+# (Python 3.9 bug: github.com/python/cpython/issues/89099).
+if sys.platform == "win32":
+    import asyncio
+    import uvicorn.loops.asyncio
+    uvicorn.loops.asyncio.asyncio_loop_factory = lambda use_subprocess=False: asyncio.SelectorEventLoop
 
 # Ensure the project root is on sys.path so that `webnc` is importable
 # when running `python webnc_server.py` or `python webnc/main.py`.
