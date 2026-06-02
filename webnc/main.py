@@ -209,11 +209,46 @@ def main():
         )
     print("WebNC — multi-drive mode (C:, D:, ...)")
     sys.modules["webnc_server"] = sys.modules["__main__"]
+    log_fmt = "%(asctime)s | %(levelname)-8s | %(message)s"
+    log_datefmt = "%Y-%m-%d %H:%M:%S"
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": log_fmt,
+                "datefmt": log_datefmt,
+            },
+            "access": {
+                "format": log_fmt,
+                "datefmt": log_datefmt,
+            },
+        },
+        "handlers": {
+            "default": {
+                "formatter": "default",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stderr",
+            },
+            "access": {
+                "formatter": "access",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+        },
+    }
+
     uvicorn.run(
         app,
         host=args.host,
         port=args.port,
         reload=reload,
+        log_config=log_config,
         **ssl_kw,
     )
 
