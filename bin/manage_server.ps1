@@ -10,6 +10,17 @@ param(
 $ScriptDir = $PSScriptRoot
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $PidFile = Join-Path $ProjectRoot "server.pid"
+
+# Bypass cert validation for self-signed cert health checks (warn once)
+$script:CertWarningShown = $false
+[System.Net.ServicePointManager]::ServerCertificateValidationCallback = {
+    param($sender, $certificate, $chain, $sslPolicyErrors)
+    if (-not $script:CertWarningShown) {
+        Write-Warning "Self-signed certificate detected — skipping validation for health check"
+        $script:CertWarningShown = $true
+    }
+    $true
+}
 $LogDir = Join-Path $ProjectRoot "logs"
 $LogFile = Join-Path $LogDir "server.log"
 $Scheme = if ($Insecure) { "http" } else { "https" }
@@ -102,7 +113,7 @@ function Start-Server {
     } else {
         Write-Host "Server may have failed to start" -ForegroundColor Red
         Write-Log "Server start command issued but health check failed"
-        $global:LASTEXITCODE = 1
+        exit 1
     }
 }
 
