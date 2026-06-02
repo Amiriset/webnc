@@ -24,22 +24,19 @@ def _get_windows_owner(p: Path) -> str:
     """Return the Windows owner name (DOMAIN\\User) for a file/directory."""
     try:
         advapi32 = ctypes.windll.advapi32
-        kernel32 = ctypes.windll.kernel32
 
         # Convert path to wide string
         path_w = ctypes.create_unicode_buffer(str(p))
 
         # First call to get the required buffer size
-        sec_desc = ctypes.c_void_p()
         sec_desc_size = ctypes.wintypes.DWORD(0)
 
-        # Need READ_CONTROL to read owner
         # OWNER_SECURITY_INFORMATION
         result = advapi32.GetFileSecurityW(
             path_w,
             0x1,
-            ctypes.byref(sec_desc),
-            sec_desc_size,
+            None,
+            0,
             ctypes.byref(sec_desc_size)
         )
         if not result and ctypes.GetLastError() != 122:  # ERROR_INSUFFICIENT_BUFFER
