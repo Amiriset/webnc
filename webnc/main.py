@@ -12,6 +12,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from webnc.version import VERSION
+
 # Windows: patch uvicorn's loop factory to use SelectorEventLoop instead of
 # ProactorEventLoop, avoiding ConnectionResetError crashes on client disconnect
 # (Python 3.9 bug: github.com/python/cpython/issues/89099).
@@ -201,7 +203,7 @@ def main():
         uvicorn.config.create_ssl_context = _hardened_ssl_context
 
     scheme = "https" if ssl_kw else "http"
-    print("WebNC API starting...")
+    print(f"WebNC v{VERSION} starting...")
     print(f"  URL: {scheme}://{args.host}:{args.port}/")
     if ssl_kw:
         print(
