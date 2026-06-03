@@ -96,9 +96,9 @@ function Start-Server {
         $resp = Get-HealthResponse
         
         if ($resp) {
-			Write-Host "  Status: $($resp.status); State: $($resp.state); Version: $($resp.version); "
+			Write-Host "$resp  Status: $($resp.status); State: $($resp.state); Version: $($resp.version); "
             switch ($resp.state) {
-                "running"          { $ok = $true } # Устанавливаем флаг, условие while его поймает
+                "running"          { $ok = $true } 
                 "generating_cert"  { Write-Host "  Generating SSL certificate..." -ForegroundColor Yellow }
                 "starting"         { Write-Host "  Booting..." -ForegroundColor Yellow }
                 default            { Write-Host "  State: $($resp.state)" -ForegroundColor Yellow }
