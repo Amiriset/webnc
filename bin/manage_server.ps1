@@ -90,18 +90,24 @@ function Start-Server {
     $maxRetries = 15
     $retryDelay = 2
     $ok = $false
-    for ($i = 1; $i -le $maxRetries; $i++) {
+    $i = 1
+	do {
         Start-Sleep -Seconds $retryDelay
         $resp = Get-HealthResponse
+        
         if ($resp) {
+			Write-Host "  Status: $($resp.status); State: $($resp.state); Version: $($resp.version); "
             switch ($resp.state) {
-                "running"          { $ok = $true; break }
+                "running"          { $ok = $true } # Устанавливаем флаг, условие while его поймает
                 "generating_cert"  { Write-Host "  Generating SSL certificate..." -ForegroundColor Yellow }
                 "starting"         { Write-Host "  Booting..." -ForegroundColor Yellow }
                 default            { Write-Host "  State: $($resp.state)" -ForegroundColor Yellow }
             }
         }
-    }
+        
+        $i++
+    } while (-not $ok -and $i -le $maxRetries)
+	
     if ($ok) {
         Write-Host "Server started successfully" -ForegroundColor Green
         Write-Log "Server started on port $Port (PID $($proc.Id))"
