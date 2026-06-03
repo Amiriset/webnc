@@ -100,6 +100,8 @@ client/                  # Frontend (React, no build step)
 config/config.json       # Operation settings (auto-created)
 bin/run.bat              # CMD wrapper
 bin/manage_server.ps1    # PowerShell management
+history/                 # Development history summaries (HISTORY.00001-00015)
+version.txt              # Application version
 ```
 
 **Detailed:** [REPOSITORY_MAP.md](docs/REPOSITORY_MAP.md) · [CODEBASE_DOCUMENTATION.md](docs/CODEBASE_DOCUMENTATION.md)
@@ -167,7 +169,7 @@ $ py webnc_server.py --help
 - [ ] Image / text preview (inline)
 - [ ] Clipboard copy / paste
 - [ ] Archive extract / create
-- [ ] Editor enhancement — find/replace, `max_edit_size` config
+- [ ] Editor enhancement — find/replace (max_edit_size config already implemented)
 
 ### Self-Hosted Product
 - [ ] SFTP / FTP provider via VFS
@@ -180,7 +182,7 @@ $ py webnc_server.py --help
 ### Also Planned
 - [ ] Symlink support (`/api/link`)
 - [ ] Extension-to-action associations
-- [ ] Terminal emulation (Ctrl+O)
+- [ ] Terminal emulation (Ctrl+O) — command input exists, full terminal planned
 - [ ] Directory hotlist
 - [ ] NDC Tree dialog
 
@@ -197,7 +199,9 @@ $ py webnc_server.py --help
 | [SECURITY.md](docs/SECURITY.md) | Threat model, vulnerability reporting |
 | [COMPLIANCE.md](docs/COMPLIANCE.md) | Security audit, data handling, compliance |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Known issues and solutions |
-| [CHANGELOG.md](CHANGELOG.md) | Version history |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
+| [History.md](History.md) | Detailed development history |
+| [history/](history/) | Per-milestone development summaries (00001–00015) |
 
 ## License
 

@@ -130,8 +130,17 @@ This weakens transport security. Only do this in isolated/trusted networks.
 - Cleanup runs every 60 seconds (`CLEANUP_INTERVAL`)
 - Graceful shutdown drains the queue on server exit
 
-### 6. PowerShell 5.1 Certificate Validation
-**Problem**: `manage_server.ps1` health checks failed on PowerShell 5.1 due to self-signed certificate rejection.
+### 6. Ctrl+O Not Working in Browser
+**Symptom**: Pressing Ctrl+O opens browser's "Open File" dialog instead of toggling panels.
+
+**Cause**: Ctrl+O is a browser-level shortcut in Chrome/Edge that cannot be reliably intercepted by web applications.
+
+**Workaround**: Use the menu items (Left/Right → On/Off, Commands → Panels On/Off) instead. The capture-phase listener is best-effort and may work in some browsers.
+
+### 7. PowerShell 5.1 Certificate Validation
+**Symptom**: `manage_server.ps1` health checks fail on PowerShell 5.1 with certificate validation errors.
+
+**Cause**: PowerShell 5.1 does not have `-SkipCertificateCheck` parameter and rejects self-signed certificates by default.
 
 **Resolution**: Script temporarily sets `ServerCertificateValidationCallback` to accept all certificates during health checks, then restores the original callback:
 ```powershell
@@ -140,7 +149,7 @@ This weakens transport security. Only do this in isolated/trusted networks.
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $oldCb
 ```
 
-### 7. Proactor Event Loop Warning Noise
+### 8. Proactor Event Loop Warning Noise
 **Problem**: Windows asyncio proactor transport warnings filled logs on client disconnect.
 
 **Resolution**: Warning filter added at startup:

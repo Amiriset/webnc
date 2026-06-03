@@ -40,6 +40,7 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Router mounting for all API endpoints
 - Configuration manager initialization
 - SSL/TLS context setup
+- Custom `log_config` passed to `uvicorn.run()` for consistent logging format
 
 #### 2. API Layer (`webnc/api/`)
 - RESTful endpoint implementations
@@ -74,12 +75,14 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Authentication providers and middleware
 - TLS/SSL certificate generation
 - Request signing and verification
+- Token printed to stderr only (not logger) to prevent token leakage to log files
 - Modules:
   - `auth_provider.py`: AuthProvider interface definition
   - `console_token.py`: ConsoleTokenProvider (default)
   - `middleware.py`: SessionAuthMiddleware
   - `tls.py`: TLS certificate generation and context creation
   - `nc_crypto.py`: Cryptographic utilities
+  - `_state.py`: Auth provider state management
 
 #### 5. Virtual File System (`webnc/vfs/`)
 - Path sanitization and conversion
@@ -130,6 +133,12 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Event handlers for keyboard shortcuts
 - Menu system integration
 - Dialog orchestration
+- Terminal/command input area (scrollable output, cmdHistory)
+- `activeTarget` state (`"panels"` | `"terminal"`) — keyboard goes exclusively to the active target
+- Tab cycles: left panel → right panel → terminal → left panel
+- Ctrl+O hides panels → auto-switches to terminal; shows panels → switches back
+- Fullscreen toggle via `document.documentElement.requestFullscreen()` (F11)
+- Configurable keyboard shortcuts via ACTION dispatch map (reads `keybindings` from config)
 
 #### 4. Components (`js/components/`)
 - `Panel.js`: File panel with all view modes (Brief, Full, Quick, Info, Tree, Search)
