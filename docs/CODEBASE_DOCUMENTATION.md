@@ -105,15 +105,18 @@ Handles filesystem operations:
 - `/api/disk`: Disk usage information
 - `/api/drives`: Available drives with labels
 - `/api/tree`: Lazy-loaded directory tree
-- `/api/search`: File search by glob/regex
-- `/api/copy`, `/api/move`, etc.: Async file operations
+- `/api/search`: File search by glob/regex (async)
+- `/api/copy`: Copy file/dir (async with retry)
+- `/api/move`: Move file/dir (async with retry)
+- `/api/rename`: Rename file/dir (synchronous)
+- `/api/mkdir`: Create directory (synchronous)
+- `/api/delete`: Delete file/dir (synchronous)
+- `/api/batch-delete`: Delete multiple items (async with retry)
 
-Each endpoint follows this pattern:
-1. Validate input parameters (Pydantic models)
-2. Create operation instance
-3. Queue operation via OperationQueue (async) or run_sync (sync)
-4. Return result or `{operation_id, status: "QUEUED", poll: config}`
-5. Frontend polls `/api/operation/{id}` for async status
+Sync vs Async pattern:
+- Synchronous endpoints use `queue.run_sync(op, timeout=10.0)` and return `OperationResult` directly
+- Asynchronous endpoints use `queue.add_operation(op)` and return `{operation_id, status: "QUEUED", poll: config}`
+- Frontend polls `GET /api/operation/{id}` for async operation status
 
 #### compare.py
 Directory comparison functionality:
@@ -139,8 +142,16 @@ Archive handling:
 #### system.py
 System information endpoints:
 - `/api/sysinfo`: OS, hostname, CPU, RAM, uptime, drives
-- `/api/health`: Health check (no auth required)
+- `/api/health`: Health check (no auth required) — returns `{status, state, version}`
 - Uses `platform`, `psutil`, and Win32 APIs where applicable
+
+#### exec.py
+Command execution endpoint:
+- `/api/exec`: Execute shell command on server (synchronous, 30s timeout)
+- `_decode()`: Fallback chain for stdout/stderr: UTF-8 → CP866 (OEM) → CP1251 (ANSI) → CP437 → Latin-1
+- Command allow/deny checks via `config.json` → `exec.allowed_commands` / `exec.denied_commands`
+- Uses `asyncio.create_subprocess_shell()` with 30s timeout
+- Default denied commands: `format`, `diskpart`, `shutdown`, `reg.exe`
 
 #### drives.py
 Drive information:

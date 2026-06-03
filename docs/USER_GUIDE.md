@@ -77,8 +77,18 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 
 ### Command Line
 - Located at bottom center
-- Accessible via `:` key or clicking
-- Supports direct command entry (planned feature: `/api/exec` endpoint)
+- Accessible via clicking on the command input area
+- Type command and press Enter to execute via `POST /api/exec`
+- Command output appears in scrollable terminal area below panels
+- Command history maintained (up/down arrows planned)
+- When both panels hidden (Ctrl+O), terminal fills the full space
+
+### Active Target
+- `activeTarget` state controls which area receives keyboard input: `"panels"` or `"terminal"`
+- Tab cycles: left panel → right panel → terminal → left panel
+- Ctrl+O hides panels → auto-switches to terminal; shows panels → switches back
+- Click on panels area → switches to panels; click on terminal area → switches to terminal
+- Visual indicator: terminal border turns cyan when active
 
 ### Status Bar
 - Shows current disk usage for active panel's drive
@@ -94,7 +104,7 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 | Home / End | Move to first/last item |
 | PgUp / PgDn | Page up/down |
 | Enter | Open directory or launch file |
-| Tab | Switch active panel |
+| Tab | Switch active panel (left → right → terminal → left) |
 | Alt+F1 | Focus left panel drive selector |
 | Alt+F2 | Focus right panel drive selector |
 
@@ -306,7 +316,7 @@ View contents of archive files:
 #### File Viewing and Editing
 - **View (F3)**: Text files under 64KB shown in read-only viewer
 - **Info (F4 on directory)**: Shows directory statistics and contents
-- **Edit (F4 on file)**: Opens EditorDialog for text files <64KB
+- **Edit (F4 on file)**: Opens EditorDialog for text files < `max_edit_size` (default 1 MB, configurable via `editor.max_edit_size` in config.json)
   - Edit content in textarea
   - Ctrl+S indicates save shortcut
   - Save/Cancel buttons
