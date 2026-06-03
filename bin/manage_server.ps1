@@ -10,21 +10,22 @@ param(
 $ScriptDir = $PSScriptRoot
 $ProjectRoot = Split-Path -Parent $ScriptDir
 $PidFile = Join-Path $ProjectRoot "server.pid"
-
-# Bypass cert validation for self-signed cert health checks (warn once)
-$script:CertWarningShown = $false
-[System.Net.ServicePointManager]::ServerCertificateValidationCallback = {
-    param($sender, $certificate, $chain, $sslPolicyErrors)
-    if (-not $script:CertWarningShown) {
-        Write-Warning "Self-signed certificate detected — skipping validation for health check"
-        $script:CertWarningShown = $true
-    }
-    $true
-}
 $LogDir = Join-Path $ProjectRoot "logs"
 $LogFile = Join-Path $LogDir "server.log"
 $Scheme = if ($Insecure) { "http" } else { "https" }
 $ServerUrl = "$Scheme`://127.0.0.1:$Port"
+
+# Force modern TLS for health checks AND bypass self-signed certificate
+try { 
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13 
+} catch { 
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 
+}
+# Disable SSL validation immediately if we're in HTTPS mode
+if (-not $Insecure) {
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+}
+$script:CertWarned = $false
 
 function Write-Log {
     param([string]$Message)
@@ -60,20 +61,15 @@ function Get-ServerProcess {
 }
 
 function Get-HealthResponse {
-    try {
-        $oldCb = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
-        $oldProt = [System.Net.ServicePointManager]::SecurityProtocol
-        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls13
-        $iwrParams = @{ Uri = "$ServerUrl/api/health"; UseBasicParsing = $true; TimeoutSec = 5 }
-        if ($PSVersionTable.PSVersion.Major -ge 7) { $iwrParams.SkipCertificateCheck = $true }
-        $r = Invoke-WebRequest @iwrParams
-        return ($r.Content | ConvertFrom-Json)
-    } catch { return $null }
-    finally {
-        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $oldCb
-        [System.Net.ServicePointManager]::SecurityProtocol = $oldProt
+    $json = & py (Join-Path $ScriptDir "healthcheck.py") "$ServerUrl/api/health" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $json) {
+        return ($json | ConvertFrom-Json)
     }
+    if (-not $script:CertWarned) {
+        Write-Warning "Health check endpoint is not ready yet. (Waiting for server boot/TLS handshake)"
+        $script:CertWarned = $true
+    }
+    return $null
 }
 
 function Test-Health {
@@ -111,7 +107,7 @@ function Start-Server {
         Write-Log "Server started on port $Port (PID $($proc.Id))"
         $global:LASTEXITCODE = 0
     } else {
-        Write-Host "Server may have failed to start" -ForegroundColor Red
+        Write-Host "Server may have failed to start: $resp" -ForegroundColor Red
         Write-Log "Server start command issued but health check failed"
         exit 1
     }
