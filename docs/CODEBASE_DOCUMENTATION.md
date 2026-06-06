@@ -45,6 +45,9 @@ The main application entry point that:
 - Initializes the configuration manager
 - Configures exception handlers
 - Sets up startup/shutdown events
+- Configures Windows ProactorEventLoop for subprocess support
+- Installs ConnectionResetError exception handler on event loop
+- Passes custom `log_config` to `uvicorn.run()` for consistent logging
 
 Key components:
 ```python
@@ -197,15 +200,16 @@ File operation implementations:
 - `WriteOperation`: File creation/overwrite (for editor)
 - `DownloadOperation`: File download preparation
 - `UploadOperation`: File upload with size validation
-- `CopyOperation`: shutil.copy2 with metadata preservation
+- `CopyOperation`: shutil.copytree/shutil.copy2 with metadata preservation
 - `MoveOperation`: shutil.move with cross-device handling
-- `RenameOperation`: os.rename with path validation
-- `MakeDirectoryOperation`: os.makedirs with parent creation
-- `DeleteOperation`: shutil.rmtree or os.remove
+- `RenameOperation`: Path.rename with validation
+- `MakeDirectoryOperation`: Path.mkdir with parents
+- `LinkOperation`: os.symlink with mklink /J (junction) / /H (hardlink) fallback
+- `DeleteOperation`: shutil.rmtree or Path.unlink
 - `BatchDeleteOperation`: Multiple delete with individual error handling
-- `SearchOperation`: Glob/regex file search
-- `FileInfoOperation`: File/directory metadata
-- `TreeOperation`: Lazy directory tree
+- `SearchOperation`: os.walk with glob/regex pattern matching
+- `FileInfoOperation`: File/directory metadata with Windows owner/permissions
+- `TreeOperation`: Lazy directory tree (immediate subdirs)
 - Each implements `_is_non_retriable()` for specific error types
 
 #### compare.py

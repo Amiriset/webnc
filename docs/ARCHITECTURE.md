@@ -265,6 +265,11 @@ Frontend Action (e.g., F5 Copy)
 - Configurable thread pool size in OperationQueue
 - Smart retry logic distinguishes retriable vs non-retriable errors
 
+### 2.1 Windows Event Loop
+- `WindowsProactorEventLoopPolicy` required for `asyncio.create_subprocess_shell` (exec endpoint)
+- `SelectorEventLoop` raises `NotImplementedError` on Windows for subprocess creation
+- Monkey-patched `new_event_loop` installs `ConnectionResetError` exception handler to prevent crashes on client disconnect
+
 ### 3. Modular Design
 - Clear separation of concerns: API → Operations → VFS → FS
 - Dependency injection for configuration and logging
@@ -363,6 +368,7 @@ Frontend Action (e.g., F5 Copy)
 - Subclass `AbstractOperation` for new operation types
 - Register in `webnc/operations/` directory
 - Automatically available via API
+- Built-in: Copy, Move, Rename, Mkdir, Link, Delete, BatchDelete, Search, List, View, Write, Download, Upload, FileInfo, Tree
 
 ### 4. Frontend Components
 - Add new dialogs in `js/dialogs/`

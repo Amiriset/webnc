@@ -157,6 +157,27 @@ This weakens transport security. Only do this in isolated/trusted networks.
 warnings.filterwarnings("ignore", message=".*_ProactorBasePipeTransport.*")
 ```
 
+### 9. Exec Endpoint NotImplementedError
+**Symptom**: `POST /api/exec` returns HTTP 500 with `NotImplementedError: ... SelectorEventLoop cannot subprocess`.
+
+**Cause**: `SelectorEventLoop` (default on Windows) cannot create subprocesses. `asyncio.create_subprocess_shell` requires `ProactorEventLoop`.
+
+**Resolution**: WebNC sets `WindowsProactorEventLoopPolicy` at startup. If you see this error, ensure you're running through `webnc_server.py` (which sets the policy) rather than `uvicorn` directly.
+
+### 10. ConnectionResetError Crashes
+**Symptom**: Server crashes when a client disconnects abruptly during a request.
+
+**Cause**: Windows `ProactorEventLoop` raises `ConnectionResetError` when a client disconnects before the response is sent. Unhandled, this crashes the event loop.
+
+**Resolution**: WebNC monkey-patches `new_event_loop` to install a loop exception handler that catches `ConnectionResetError` and logs it at DEBUG level instead of crashing:
+```python
+loop.set_exception_handler(lambda l, ctx: (
+    logger.debug("Client disconnected (ConnectionResetError, ignored)")
+    if isinstance(ctx.get("exception"), ConnectionResetError)
+    else l.default_exception_handler(ctx)
+))
+```
+
 ### 8. File Upload Size Limit
 **Problem**: No limit on file uploads could cause memory exhaustion.
 
@@ -166,7 +187,18 @@ if len(content) > MAX_UPLOAD_SIZE:  # 100 * 1024 * 1024
     raise HTTPException(status_code=413, detail="File too large")
 ```
 
-### 9. Editor Size Limit
+### 9. Symlink Creation Fails
+**Symptom**: `POST /api/link` returns error "Cannot create link: enable Developer Mode".
+
+**Cause**: Windows requires Developer Mode enabled for `os.symlink()` to work without elevation.
+
+**Workarounds**:
+- Enable Developer Mode: Settings → Update & Security → For developers → Developer Mode
+- WebNC automatically falls back to `mklink /J` (junctions) for directories — this works without Developer Mode
+- For files, hardlinks (`mklink /H`) work without Developer Mode but require same drive
+- Cross-drive hardlinks are not supported by Windows
+
+### 10. Editor Size Limit
 **Problem**: Editing very large files could cause browser performance issues.
 
 **Resolution**: Configurable `max_edit_size` (default 1 MB) enforced in `/api/view` endpoint:

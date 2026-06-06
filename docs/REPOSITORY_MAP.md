@@ -79,7 +79,7 @@ This document provides a complete mapping of folders and files in the WebNC repo
 | `webnc/operations/__pycache__/` | Compiled bytecode |
 | `webnc/operations/base.py` | AbstractOperation base class with retry/timeout logic |
 | `webnc/operations/compare.py` | CompareOperation implementation |
-| `webnc/operations/files.py` | File operation implementations (Copy, Move, Delete, etc.) |
+| `webnc/operations/files.py` | File operation implementations (Copy, Move, Delete, Link, Search, etc.) |
 | `webnc/operations/queue.py` | OperationQueue managing thread pool execution |
 | `webnc/operations/syncop.py` | SyncPlanOperation and SyncExecuteOperation implementations |
 | `webnc/operations/system.py` | System operation classes (if any) |

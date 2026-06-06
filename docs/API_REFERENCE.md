@@ -89,18 +89,22 @@ Get file or directory details including owner information and disk usage.
 {
   "path": "/C/Users/example.txt",
   "name": "example.txt",
-  "type": "file",
+  "is_dir": false,
+  "is_symlink": false,
   "size": 1024,
-  "created": "2026-05-30 10:00:00",
-  "modified": "2026-05-30 14:30:00",
+  "modified": "2026-05-30T14:30:00",
+  "modified_ts": 1748625000.0,
   "owner": "DOMAIN\\Username",
   "permissions": "rwxr-xr-x",
-  "disk": {
-    "total": 100000000000,
-    "free": 50000000000,
-    "used": 50000000000,
-    "percent_used": 50
-  }
+  "extension": "txt",
+  "absolute_path": "C:\\Users\\example.txt",
+  "created": "2026-05-30T10:00:00",
+  "accessed": "2026-05-30T14:30:00",
+  "md5": "d41d8cd98f00b204e9800998ecf8427e",
+  "disk_total": 100000000000,
+  "disk_free": 50000000000,
+  "disk_used": 50000000000,
+  "disk_percent_used": 50
 }
 ```
 
@@ -289,7 +293,7 @@ Upload a file to a destination directory (multipart/form-data).
 - 500: Internal server error
 
 ### POST /api/exec
-Execute a shell command on the server (synchronous, 30s timeout).
+Execute a shell command on the server (synchronous, configurable timeout).
 
 **Request Body:**
 ```json
@@ -312,6 +316,13 @@ Execute a shell command on the server (synchronous, 30s timeout).
 - stdout/stderr decoded with fallback chain: UTF-8 → CP866 (OEM) → CP1251 (ANSI) → CP437 → Latin-1
 - Commands checked against `exec.allowed_commands` (whitelist) and `exec.denied_commands` (blacklist) in config
 - Default denied: `format`, `diskpart`, `shutdown`, `reg.exe`
+- Timeout configurable via `exec.timeout` in config (default 30s)
+
+**Error Responses:**
+- 400: Empty command or command not found
+- 403: Command is denied (see `exec.denied_commands` in config)
+- 408: Command timed out (configurable, default 30s)
+- 500: Internal server error
 
 **Error Responses:**
 - 400: Empty command or command not found
@@ -424,6 +435,34 @@ Create directory (synchronous operation).
   "path": "/C/Users/NewFolder/"
 }
 ```
+
+### POST /api/link
+Create a symbolic link, junction, or hardlink (synchronous operation).
+
+**Request Body:**
+```json
+{
+  "target": "/C/Users/OriginalFile.txt",
+  "link_path": "/D/Backup/LinkFile.txt"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "SymLinked → /D/Backup/LinkFile.txt",
+  "path": "/D/Backup/LinkFile.txt"
+}
+```
+
+**Notes:**
+- Attempts `os.symlink()` first
+- On Windows WinError 1/1314 (privilege) or cross-drive: falls back to `mklink /J` (directories) or `mklink /H` (files)
+- Directories: junction (`mklink /J`)
+- Files: hardlink (`mklink /H`) — requires same drive
+- If hardlink fails cross-drive: returns error with hint to enable Developer Mode
+- Created type returned in response: `symlink`, `junction`, or `hardlink`
 
 **Error Responses:**
 - 400: Invalid path
