@@ -4,10 +4,10 @@ const h = React.createElement;
 
 import { MONO, fmtSize, fmtDate, toWinPath, fileColor, fnmatch, isArchive } from "./lib/utils.js";
 
-import { api, apiList, apiView, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, apiSearch, apiDisk, apiInfo, apiDrives, apiTree, apiArchiveList, pollOperation, getToken, setToken, logout, setLogoutCallback, ncConfig, updateConfig, apiGetConfig, apiExec } from "./lib/api.js";
+import { api, apiList, apiView, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, apiSearch, apiDisk, apiInfo, apiDrives, apiTree, apiArchiveList, pollOperation, getToken, setToken, logout, setLogoutCallback, ncConfig, updateConfig, apiGetConfig, apiExec, apiLink } from "./lib/api.js";
 import { loadConfig, saveConfig } from "./lib/config.js";
 import { Panel } from "./components/Panel.js";
-import { FileViewer, ConfirmDialog, InputDialog, LoginDialog, DriveDialog, InfoDialog, SysInfoDialog, CompareDialog, SyncDialog, HistoryDialog, SearchDialog, ConfigDialog, TimeoutsDialog, HelpDialog, ArchiveDialog, EditorDialog } from "./dialogs/index.js";
+import { FileViewer, ConfirmDialog, InputDialog, AlertDialog, LoginDialog, DriveDialog, InfoDialog, SysInfoDialog, CompareDialog, SyncDialog, HistoryDialog, SearchDialog, ConfigDialog, TimeoutsDialog, HelpDialog, ArchiveDialog, EditorDialog } from "./dialogs/index.js";
 
 export function NortonCommander() {
   // ── Panel state ───────────────────────────────────────────────────────────
@@ -29,6 +29,7 @@ export function NortonCommander() {
   const [viewer, setViewer] = useState(null);
   const [editorDlg, setEditorDlg] = useState(null);
   const [dialog, setDialog] = useState(null);
+  const [alertDlg, setAlertDlg] = useState(null);
   const [inputDlg, setInputDlg] = useState(null);
   const [infoDlg, setInfoDlg] = useState(null);
   const [driveDlg, setDriveDlg] = useState(null);
@@ -192,7 +193,7 @@ export function NortonCommander() {
     }
     (side === "left" ? setLeftViewMode : setRightViewMode)(mode);
   };
-  const handleDirInfo = async (side) => { try { setInfoDlg(await apiInfo(side === "left" ? leftPath : rightPath)); } catch (err) { setStatusMsg(`Info error: ${err.message}`); } };
+  const handleDirInfo = async (side) => { try { setInfoDlg(await apiInfo(side === "left" ? leftPath : rightPath)); } catch (err) { setAlertDlg({ message: `Info error: ${err.message}` }); } };
 
   const handleEditorSave = async (path, content) => {
     await api("POST", "/api/edit", { path, content });
@@ -213,7 +214,7 @@ export function NortonCommander() {
       setStatusMsg(`Done (exit code ${res.returncode})`);
     } catch (err) {
       setCmdHistory((prev) => [...prev, { cmd, stdout: err.message, returncode: -1 }]);
-      setStatusMsg(`Exec error: ${err.message}`);
+      setAlertDlg({ message: `Exec error: ${err.message}` });
     }
   };
 
@@ -267,7 +268,7 @@ export function NortonCommander() {
       const children = data.dirs.map((d) => ({ ...d, depth: 1, expanded: false, loading: false }));
       setNodes([root, ...children]); setCursor(0); setLoaded(new Set([rootPath]));
       treeNavigateOpposite(side, rootPath);
-    } catch (err) { setStatusMsg(`Tree error: ${err.message}`); }
+    } catch (err) { setAlertDlg({ message: `Tree error: ${err.message}` }); }
   };
   const expandTreeNode = async (side, node) => {
     if (node.loading) return;
@@ -279,7 +280,7 @@ export function NortonCommander() {
       const children = data.dirs.map((d) => ({ ...d, depth: node.depth + 1, expanded: false, loading: false }));
       setNodes((prev) => { const idx = prev.findIndex((n) => n.path === node.path); if (idx === -1) return prev; return [...prev.slice(0, idx + 1), ...children, ...prev.slice(idx + 1)].map((n) => n.path === node.path ? { ...n, loading: false, expanded: true } : n); });
       setLoaded((prev) => new Set(prev).add(node.path));
-    } catch (err) { setNodes((prev) => prev.map((n) => n.path === node.path ? { ...n, loading: false } : n)); setStatusMsg(`Tree expand error: ${err.message}`); }
+    } catch (err) { setNodes((prev) => prev.map((n) => n.path === node.path ? { ...n, loading: false } : n)); setAlertDlg({ message: `Tree expand error: ${err.message}` }); }
   };
   const collapseTreeNode = (side, node) => {
     const setNodes = side === "left" ? setLeftTreeNodes : setRightTreeNodes;
@@ -289,8 +290,26 @@ export function NortonCommander() {
   const treeNavigateOpposite = (side, treePath) => { if (!treePath) return; if (side === "left") { setRightPath(treePath); fetchDir(treePath, "right"); } else { setLeftPath(treePath); fetchDir(treePath, "left"); } };
 
   // ── Commands menu handlers ────────────────────────────────────────────────
-  const handleSystemInfo = async () => { try { setSysInfoDlg(await api("GET", "/api/sysinfo")); } catch (err) { setStatusMsg(`SysInfo error: ${err.message}`); } };
-  const handleCompare = async () => { try { const { operation_id, poll } = await api("POST", "/api/compare", { left: leftPath, right: rightPath }); setCompareDlg(await pollOperation(operation_id, poll?.timeout, poll?.interval)); } catch (err) { setStatusMsg(`Compare error: ${err.message}`); } };
+  const handleSystemInfo = async () => { try { setSysInfoDlg(await api("GET", "/api/sysinfo")); } catch (err) { setAlertDlg({ message: `SysInfo error: ${err.message}` }); } };
+
+  const handleLink = () => {
+    const side = activePanel;
+    const items = side === "left" ? leftItems : rightItems;
+    const idx = side === "left" ? leftIdx : rightIdx;
+    const item = items[idx];
+    const currentPath = side === "left" ? leftPath : rightPath;
+    const oppPath = side === "left" ? rightPath : leftPath;
+    if (!item || item._isParent) return;
+    setInputDlg({
+      title: "Create Symbolic Link",
+      label: `Link target: ${item.name} (from ${toWinPath(currentPath)})\nEnter link name in ${toWinPath(oppPath)}:`,
+      defaultValue: item.name,
+      onOk: async (name) => { setInputDlg(null); try { await apiLink(item.path, `${oppPath.replace(/\/$/, "")}/${name}`); setStatusMsg(`Linked ${item.name} \u2192 ${name}`); fetchDir(oppPath, side === "left" ? "right" : "left"); } catch (err) { setAlertDlg({ message: err.message }); } },
+      onCancel: () => setInputDlg(null),
+    });
+  };
+
+  const handleCompare = async () => { try { const { operation_id, poll } = await api("POST", "/api/compare", { left: leftPath, right: rightPath }); setCompareDlg(await pollOperation(operation_id, poll?.timeout, poll?.interval)); } catch (err) { setAlertDlg({ message: `Compare error: ${err.message}` }); } };
   const compareNavigate = (item, side) => { if (!item || !item.path) return; const setPath = side === "left" ? setLeftPath : setRightPath; if (item.is_dir) { setPath(item.path); fetchDir(item.path, side); } else { const pp = item.path.substring(0, item.path.lastIndexOf("/")) || "/C/"; setPath(pp); fetchDir(pp, side); } };
   const handleSync = () => { setSyncPlan(null); setSyncActions([]); setSyncDlg("setup"); };
   const handleSyncCompare = async (opts) => {
@@ -300,11 +319,11 @@ export function NortonCommander() {
       const plan = await pollOperation(operation_id, poll?.timeout, poll?.interval);
       const defaultActions = []; plan.forEach((item) => { if (item.suggested) defaultActions.push({ name: item.path, action: item.suggested }); });
       setSyncPlan(plan); setSyncActions(defaultActions); setSyncDlg("plan"); setStatusMsg("Ready");
-    } catch (err) { setStatusMsg(`Sync error: ${err.message}`); }
+    } catch (err) { setAlertDlg({ message: `Sync error: ${err.message}` }); }
   };
   const syncExecute = async () => {
     if (!syncActions.length) { setStatusMsg("No items selected to sync"); return; }
-    try { const { operation_id, poll } = await api("POST", "/api/sync/execute", { left: leftPath, right: rightPath, actions: syncActions }); const result = await pollOperation(operation_id, poll?.timeout, poll?.interval); setSyncDlg("result"); setSyncPlan(result); } catch (err) { setStatusMsg(`Sync execute error: ${err.message}`); }
+    try { const { operation_id, poll } = await api("POST", "/api/sync/execute", { left: leftPath, right: rightPath, actions: syncActions }); const result = await pollOperation(operation_id, poll?.timeout, poll?.interval); setSyncDlg("result"); setSyncPlan(result); } catch (err) { setAlertDlg({ message: `Sync execute error: ${err.message}` }); }
   };
   const syncToggleItem = (path, action) => { setSyncActions((prev) => { if (!action) return prev.filter((a) => a.name !== path); const idx = prev.findIndex((a) => a.name === path); if (idx >= 0) { const u = [...prev]; u[idx] = { name: path, action }; return u; } return [...prev, { name: path, action }]; }); };
   const syncSetAll = (on) => { if (!syncPlan || !syncPlan.length) return; if (!on) { setSyncActions([]); return; } const result = []; syncPlan.forEach((item) => { if (item.suggested) result.push({ name: item.path, action: item.suggested }); }); setSyncActions(result); };
@@ -412,11 +431,12 @@ export function NortonCommander() {
         help: () => setHelpDlg(true),
         menu_left: () => setOpenMenu((p) => (p ? null : "Left")),
         view: async () => { if (item && !item._isParent && !item.is_dir) { setViewer({ filename: item.name, content: "", loading: true }); try { const d = await apiView(item.path); setViewer({ filename: item.name, content: d.content, loading: false }); } catch (err) { setViewer({ filename: item.name, content: `Error: ${err.message}`, loading: false }); } } },
-        edit: async () => { if (item && !item._isParent) { if (item.is_dir) { try { setInfoDlg(await apiInfo(item.path)); } catch (err) { setStatusMsg(`Info error: ${err.message}`); } } else { try { const v = await apiView(item.path, true); setEditorDlg({ filename: item.name, content: v.content, path: item.path }); } catch (err) { setStatusMsg(`Edit error: ${err.message}`); } } } },
-        copy: () => { if (!item || item._isParent) return; const t = selected.size > 0 ? [...selected] : [item.path]; setDialog({ title: "Copy", message: `Copy ${t.length} item(s) to ${oppPath}?`, onYes: async () => { setDialog(null); try { for (const s of t) await apiCopy(s, oppPath); setStatusMsg(`Copied ${t.length} item(s)`); setSelected(new Set()); refreshBoth(); } catch (err) { setStatusMsg(`Copy error: ${err.message}`); } }, onNo: () => setDialog(null) }); },
-        move: () => { if (!item || item._isParent) return; if (selected.size === 0) { setInputDlg({ title: "Move / Rename", label: `Rename "${item.name}" or move to ${oppPath}:`, defaultValue: item.name, onOk: async (n) => { setInputDlg(null); try { if (n !== item.name) { await apiRename(item.path, n); setStatusMsg(`Renamed → ${n}`); } else { await apiMove(item.path, oppPath); setStatusMsg(`Moved → ${oppPath}`); } refreshBoth(); } catch (err) { setStatusMsg(`Move error: ${err.message}`); } }, onCancel: () => setInputDlg(null) }); } else { const t = [...selected]; setDialog({ title: "Move", message: `Move ${t.length} item(s) to ${oppPath}?`, onYes: async () => { setDialog(null); try { for (const s of t) await apiMove(s, oppPath); setStatusMsg(`Moved ${t.length} item(s)`); setSelected(new Set()); refreshBoth(); } catch (err) { setStatusMsg(`Move error: ${err.message}`); } }, onNo: () => setDialog(null) }); } },
-        mkdir: () => setInputDlg({ title: "Create Directory", label: `New directory in ${toWinPath(path)}:`, defaultValue: "", onOk: async (name) => { setInputDlg(null); try { await apiMkdir(`${path.replace(/\/$/, "")}/${name}`); setStatusMsg(`Created ${name}`); fetchDir(path, activePanel); } catch (err) { setStatusMsg(`MkDir error: ${err.message}`); } }, onCancel: () => setInputDlg(null) }),
-        delete: () => { if (!item || item._isParent) return; const t = selected.size > 0 ? [...selected] : [item.path]; const names = t.map((p) => p.split("/").pop()).join(", "); setDialog({ title: "Delete", message: `Delete ${t.length} item(s): ${names.substring(0, 60)}${names.length > 60 ? "..." : ""}?`, onYes: async () => { setDialog(null); try { if (t.length === 1) await apiDelete(t[0], true); else await apiBatchDelete(t, true); setStatusMsg(`Deleted ${t.length} item(s)`); setSelected(new Set()); fetchDir(path, activePanel); } catch (err) { setStatusMsg(`Delete error: ${err.message}`); } }, onNo: () => setDialog(null) }); },
+        edit: async () => { if (item && !item._isParent) { if (item.is_dir) { try { setInfoDlg(await apiInfo(item.path)); } catch (err) { setAlertDlg({ message: `Info error: ${err.message}` }); } } else { try { const v = await apiView(item.path, true); setEditorDlg({ filename: item.name, content: v.content, path: item.path }); } catch (err) { setAlertDlg({ message: `Edit error: ${err.message}` }); } } } },
+        copy: () => { if (!item || item._isParent) return; const t = selected.size > 0 ? [...selected] : [item.path]; setDialog({ title: "Copy", message: `Copy ${t.length} item(s) to ${oppPath}?`, onYes: async () => { setDialog(null); try { for (const s of t) await apiCopy(s, oppPath); setStatusMsg(`Copied ${t.length} item(s)`); setSelected(new Set()); refreshBoth(); } catch (err) { setAlertDlg({ message: `Copy error: ${err.message}` }); } }, onNo: () => setDialog(null) }); },
+        move: () => { if (!item || item._isParent) return; if (selected.size === 0) { setInputDlg({ title: "Move / Rename", label: `Rename "${item.name}" or move to ${oppPath}:`, defaultValue: item.name, onOk: async (n) => { setInputDlg(null); try { if (n !== item.name) { await apiRename(item.path, n); setStatusMsg(`Renamed → ${n}`); } else { await apiMove(item.path, oppPath); setStatusMsg(`Moved → ${oppPath}`); } refreshBoth(); } catch (err) { setAlertDlg({ message: `Move error: ${err.message}` }); } }, onCancel: () => setInputDlg(null) }); } else { const t = [...selected]; setDialog({ title: "Move", message: `Move ${t.length} item(s) to ${oppPath}?`, onYes: async () => { setDialog(null); try { for (const s of t) await apiMove(s, oppPath); setStatusMsg(`Moved ${t.length} item(s)`); setSelected(new Set()); refreshBoth(); } catch (err) { setAlertDlg({ message: `Move error: ${err.message}` }); } }, onNo: () => setDialog(null) }); } },
+        mkdir: () => setInputDlg({ title: "Create Directory", label: `New directory in ${toWinPath(path)}:`, defaultValue: "", onOk: async (name) => { setInputDlg(null); try { await apiMkdir(`${path.replace(/\/$/, "")}/${name}`); setStatusMsg(`Created ${name}`); fetchDir(path, activePanel); } catch (err) { setAlertDlg({ message: `MkDir error: ${err.message}` }); } }, onCancel: () => setInputDlg(null) }),
+        link: handleLink,
+        delete: () => { if (!item || item._isParent) return; const t = selected.size > 0 ? [...selected] : [item.path]; const names = t.map((p) => p.split("/").pop()).join(", "); setDialog({ title: "Delete", message: `Delete ${t.length} item(s): ${names.substring(0, 60)}${names.length > 60 ? "..." : ""}?`, onYes: async () => { setDialog(null); try { if (t.length === 1) await apiDelete(t[0], true); else await apiBatchDelete(t, true); setStatusMsg(`Deleted ${t.length} item(s)`); setSelected(new Set()); fetchDir(path, activePanel); } catch (err) { setAlertDlg({ message: `Delete error: ${err.message}` }); } }, onNo: () => setDialog(null) }); },
         search: () => setSearchDlg({ onResults: handleSearchResults }),
         quit: handleLogout,
       };
@@ -452,7 +472,7 @@ export function NortonCommander() {
   useEffect(() => { if (!openMenu) return; const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenu(null); }; window.addEventListener("click", handler); return () => window.removeEventListener("click", handler); }, [openMenu]);
 
   // ── Load drives on drive dialog open ──────────────────────────────────────
-  useEffect(() => { if (driveDlg) { (async () => { try { const all = await apiDrives(); setDrivesList(all.filter((d) => d.total > 0)); } catch (err) { setStatusMsg(`Drives error: ${err.message}`); setDriveDlg(null); } })(); } else setDrivesList([]); }, [driveDlg]);
+  useEffect(() => { if (driveDlg) { (async () => { try { const all = await apiDrives(); setDrivesList(all.filter((d) => d.total > 0)); } catch (err) { setAlertDlg({ message: `Drives error: ${err.message}` }); setDriveDlg(null); } })(); } else setDrivesList([]); }, [driveDlg]);
 
   // ── Menu definitions ──────────────────────────────────────────────────────
   const menuItems = {
@@ -488,6 +508,7 @@ export function NortonCommander() {
       { label: "Copy", action: () => dispatchKey("F5"), shortcut: "F5" },
       { label: "Move / Rename", action: () => dispatchKey("F6"), shortcut: "F6" },
       { label: "Make Directory", action: () => dispatchKey("F7"), shortcut: "F7" },
+      { label: "Symbolic Link", action: handleLink },
       { label: "Delete", action: () => dispatchKey("F8"), shortcut: "F8" },
     ],
     "Commands": [
@@ -616,6 +637,7 @@ export function NortonCommander() {
     viewer && h(FileViewer, { filename: viewer.filename, content: viewer.content, loading: viewer.loading, onClose: () => setViewer(null) }),
     editorDlg && h(EditorDialog, { filename: editorDlg.filename, content: editorDlg.content, onSave: (text) => handleEditorSave(editorDlg.path, text), onClose: () => setEditorDlg(null) }),
     dialog && h(ConfirmDialog, { title: dialog.title, message: dialog.message, onYes: dialog.onYes, onNo: dialog.onNo }),
+    alertDlg && h(AlertDialog, { message: alertDlg.message, onClose: () => setAlertDlg(null) }),
     inputDlg && h(InputDialog, { title: inputDlg.title, label: inputDlg.label, defaultValue: inputDlg.defaultValue, onOk: inputDlg.onOk, onCancel: inputDlg.onCancel }),
     infoDlg && h(InfoDialog, { info: infoDlg, onClose: () => setInfoDlg(null) }),
     driveDlg && h(DriveDialog, { drives: drivesList, onSelect: (d) => { const np = `/${d.drive[0]}/`; if (driveDlg.side === "left") { setLeftPath(np); fetchDir(np, "left"); } else { setRightPath(np); fetchDir(np, "right"); } setDriveDlg(null); }, onClose: () => setDriveDlg(null) }),

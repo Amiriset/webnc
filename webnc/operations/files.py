@@ -7,6 +7,7 @@ import hashlib
 import os
 import re
 import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -285,6 +286,61 @@ class MakeDirectoryOperation(AbstractOperation[dict]):
         return OperationResult(success=True, data={"path": relative_path(dir_path)})
 
 
+class LinkOperation(AbstractOperation[dict]):
+    def __init__(self, target: str, link_path: str, **kwargs):
+        super().__init__(**kwargs)
+        self.target = target
+        self.link_path = link_path
+
+    def execute(self) -> OperationResult[dict]:
+        target = safe_path(self.target)
+        link = safe_path(self.link_path)
+
+        if not target.exists():
+            return OperationResult(success=False, error_message=f"Target not found: {self.target}")
+        if link.exists():
+            return OperationResult(success=False, error_message=f"Link already exists: {self.link_path}")
+
+        try:
+            resolved = target.resolve()
+        except OSError:
+            resolved = target.absolute()
+
+        link_parent = link.parent
+        cross_drive = resolved.drive != link_parent.drive if resolved.drive and link_parent.drive else False
+        created_as = "symlink"
+
+        try:
+            if cross_drive:
+                raise OSError(1, "cross-drive link, skipping os.symlink")
+            os.symlink(str(resolved), str(link))
+        except OSError as e:
+            win_err = getattr(e, "winerror", None)
+            if win_err in (1, 1314) or cross_drive:
+                logger.warning("symlink fallback (WinError %s), trying mklink: target=%s link=%s", win_err or "cross-drive", self.target, self.link_path)
+                try:
+                    if target.is_dir():
+                        cmd = ["cmd", "/c", "mklink", "/J", str(link), str(resolved)]
+                    else:
+                        cmd = ["cmd", "/c", "mklink", "/H", str(link), str(resolved)]
+                    subprocess.check_call(cmd, shell=True)
+                    created_as = "junction" if target.is_dir() else "hardlink"
+                except subprocess.CalledProcessError as mklink_err:
+                    logger.warning("mklink failed: target=%s link=%s", self.target, self.link_path)
+                    hints = []
+                    if cross_drive and not target.is_dir():
+                        hints.append("hard links require same drive")
+                    if target.is_dir():
+                        hints.append("enable Developer Mode in Windows Settings (Update & Security → For developers)")
+                    hint = "; ".join(hints) if hints else "enable Developer Mode or check filesystem permissions"
+                    return OperationResult(success=False, error_message=f"Cannot create link: {hint}")
+            else:
+                logger.exception("symlink failed: target=%s link=%s", self.target, self.link_path)
+                return OperationResult(success=False, error_message=str(e))
+
+        return OperationResult(success=True, data={"path": relative_path(link), "created_as": created_as})
+
+
 class DeleteOperation(AbstractOperation[dict]):
     def __init__(self, path: str, recursive: bool = False, **kwargs):
         super().__init__(**kwargs)
@@ -437,6 +493,7 @@ def _build_file_info(p: Path) -> dict:
         name=p.name,
         path=relative_path(p),
         is_dir=p.is_dir(),
+        is_symlink=p.is_symlink(),
         size=st_size if st and not p.is_dir() else 0,
         modified=mod_time.isoformat(),
         modified_ts=st.st_mtime if st else 0,
