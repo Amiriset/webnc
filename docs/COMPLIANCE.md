@@ -108,6 +108,10 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - Protection against directory traversal attacks
   - URL format (`/C/Users/...`) used consistently in API
   - Conversion to Windows paths only at filesystem boundary
+- **Symlink Handling**:
+  - `LinkOperation` creates symlinks, junctions, or hardlinks
+  - Junctions and hardlinks created without Developer Mode via `mklink` fallback
+  - Cross-drive hardlinks rejected (Windows limitation)
 - **Error Handling**:
   - `PermissionError`: Logs warning but continues operation (skips inaccessible items)
   - No elevation of privileges or bypass of OS permissions

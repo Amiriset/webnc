@@ -123,6 +123,7 @@ version.txt              # Application version
 | `/api/sync/plan`, `/api/sync/execute` | GET/POST | Sync |
 | `/api/archive/list` | GET | Archive contents |
 | `/api/exec` | POST | Execute shell command |
+| `/api/link` | POST | Create symlink/junction/hardlink |
 | `/api/operation/{id}` | GET | Poll async status |
 | `/api/config` | GET/PUT | Server config |
 | `/api/health` | GET | Health check (no auth) |
@@ -155,6 +156,8 @@ $ py webnc_server.py --help
 - [x] Keyboard shortcut config — `keybindings` in `config.json`, action dispatch map
 - [x] Command input — `POST /api/exec`, interactive `>` line, terminal output area
 - [x] Operation retry/timeout config — per-operation in `config.json`, polling on frontend
+- [x] Command history — ArrowUp/Down, localStorage-backed, max 100 entries
+- [x] Symbolic links — `POST /api/link`, symlink/junction/hardlink fallback
 
 ### Productize Core
 - [ ] Linux support via VFS abstraction layer
@@ -180,7 +183,6 @@ $ py webnc_server.py --help
 - [ ] Landing page
 
 ### Also Planned
-- [ ] Symlink support (`/api/link`)
 - [ ] Extension-to-action associations
 - [ ] Terminal emulation (Ctrl+O) — command input exists, full terminal planned
 - [ ] Directory hotlist

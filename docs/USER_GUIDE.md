@@ -80,7 +80,7 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 - Accessible via clicking on the command input area
 - Type command and press Enter to execute via `POST /api/exec`
 - Command output appears in scrollable terminal area below panels
-- Command history maintained (up/down arrows planned)
+- Command history: ArrowUp/Down to navigate previous commands (max 100, persisted in localStorage)
 - When both panels hidden (Ctrl+O), terminal fills the full space
 
 ### Active Target
@@ -511,6 +511,24 @@ For detailed extension guidelines, see `docs/CODEBASE_DOCUMENTATION.md`.
 - **UI settings reset**: Clear browser cache or check for conflicting extensions
 
 For more detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
+
+## Symbolic Links
+
+WebNC supports creating symbolic links, junctions, and hardlinks:
+
+### Creating Links
+1. Navigate to target file/directory
+2. Use Commands menu → Create Link (or API `POST /api/link`)
+3. Specify target and link path
+4. WebNC automatically selects best link type:
+   - **Symlink**: `os.symlink()` (requires Developer Mode on Windows)
+   - **Junction**: `mklink /J` (directories, fallback when symlink fails)
+   - **Hardlink**: `mklink /H` (files, same drive only)
+
+### Notes
+- Directories: junction preferred (no Developer Mode needed)
+- Files: hardlink requires same drive; cross-drive returns error
+- Enable Developer Mode for symlinks: Settings → Update & Security → For developers
 
 ## Safety and Security Notices
 

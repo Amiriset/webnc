@@ -327,7 +327,8 @@ Managed via `/api/config` endpoint, controls operation timeouts, retry settings,
   },
   "exec": {
     "allowed_commands": [],
-    "denied_commands": ["format", "diskpart", "shutdown", "reg.exe"]
+    "denied_commands": ["format", "diskpart", "shutdown", "reg.exe"],
+    "timeout": 30
   },
   "editor": {
     "max_edit_size": 1048576
@@ -348,6 +349,7 @@ Managed via `/api/config` endpoint, controls operation timeouts, retry settings,
 #### Field Descriptions — Exec
 - `allowed_commands`: Whitelist of allowed command prefixes (empty = all allowed except denied)
 - `denied_commands`: Blacklist of denied command prefixes (always blocked)
+- `timeout`: Maximum command execution time in seconds (default: 30)
 
 #### Field Descriptions — Editor
 - `max_edit_size`: Maximum file size in bytes for the editor (default: 1 MB = 1048576)
