@@ -22,6 +22,7 @@ OPERATION_DEFAULTS = {
 EXEC_DEFAULTS = {
     "allowed_commands": [],
     "denied_commands": ["format", "diskpart", "shutdown", "reg", "reg.exe"],
+    "timeout": 30,
 }
 
 EDITOR_DEFAULTS = {
@@ -124,6 +125,10 @@ class ConfigManager:
     def get_exec_denied(self) -> list[str]:
         with self._lock:
             return list(self._data.get("exec", {}).get("denied_commands", []))
+
+    def get_exec_timeout(self) -> int:
+        with self._lock:
+            return self._data.get("exec", {}).get("timeout", 30)
 
     def get_max_edit_size(self) -> int:
         with self._lock:

@@ -39,9 +39,23 @@ export function TimeoutsDialog({ onClose }) {
     });
   };
 
+  const updateExec = (field, val) => {
+    setOpCfg((prev) => {
+      const exec = { ...prev.exec };
+      exec[field] = val;
+      return { ...prev, exec: exec };
+    });
+  };
+
   const opNum = (key, field, val, min, max) =>
     h("input", {
       type: "number", value: val, onChange: (e) => updateOp(key, field, Math.max(min, Number(e.target.value))),
+      min, max, className: "nc-num",
+    });
+
+  const execNum = (field, val, min, max) =>
+    h("input", {
+      type: "number", value: val, onChange: (e) => updateExec(field, Math.max(min, Number(e.target.value))),
       min, max, className: "nc-num",
     });
 
@@ -73,6 +87,12 @@ export function TimeoutsDialog({ onClose }) {
                 h("span", { className: "text-center", style: { width: 80 } }, opNum(key, "timeout", o.timeout ?? 120, 5, 3600)),
                 h("span", { className: "text-center", style: { width: 80 } }, opNum(key, "interval", o.interval ?? 300, 50, 10000)));
             })),
+      // Exec timeout row
+      opCfg ? h("div", { className: "flex fs-11", style: { padding: "4px 6px", alignItems: "center", borderTop: "1px solid #0055AA", marginTop: 4 } },
+        h("span", { style: { width: 110, color: "#FFAA00" } }, "Exec"),
+        h("span", { className: "text-center", style: { width: 70 } }, "\u2014"),
+        h("span", { className: "text-center", style: { width: 80 } }, execNum("timeout", opCfg.exec?.timeout ?? 30, 5, 3600)),
+        h("span", { className: "text-center", style: { width: 80 } }, "\u2014")) : null,
       // Buttons
       h("div", { className: "flex gap-16", style: { justifyContent: "center", padding: "6px 12px 10px", flexShrink: 0 } },
         h("button", { onClick: handleSave, className: "nc-btn" }, "[ Save ]"),

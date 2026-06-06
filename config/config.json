@@ -74,7 +74,8 @@
       "diskpart",
       "shutdown",
       "reg.exe"
-    ]
+    ],
+    "timeout": 30
   },
   "editor": {
     "max_edit_size": 1048576

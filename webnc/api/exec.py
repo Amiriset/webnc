@@ -54,6 +54,7 @@ async def exec_command(req: ExecRequest):
 
     logger.info("POST /api/exec  cmd=%s cwd=%s", cmd, req.cwd)
     cwd = str(safe_path(req.cwd)) if req.cwd else os.getcwd()
+    exec_timeout = cm.get_exec_timeout()
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd,
@@ -62,11 +63,11 @@ async def exec_command(req: ExecRequest):
             cwd=cwd,
         )
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=exec_timeout)
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
-            raise HTTPException(status_code=408, detail="Command timed out (30s)")
+            raise HTTPException(status_code=408, detail=f"Command timed out ({exec_timeout}s)")
         return ExecResponse(
             stdout=_decode(stdout),
             stderr=_decode(stderr),
