@@ -76,7 +76,10 @@ export function NortonCommander() {
   const [timeoutsDlg, setTimeoutsDlg] = useState(null);
   const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement);
   const [cmdLine, setCmdLine] = useState("");
+  const loadHistoryTexts = () => { try { const h = JSON.parse(localStorage.getItem("cmdHistory") || "[]"); return Array.isArray(h) ? h.slice(-100) : []; } catch { return []; } };
   const [cmdHistory, setCmdHistory] = useState([]);
+  const [cmdHistoryTexts, setCmdHistoryTexts] = useState(loadHistoryTexts);
+  const [cmdHistoryIdx, setCmdHistoryIdx] = useState(-1);
   const termRef = useRef(null);
   useEffect(() => { if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight; }, [cmdHistory]);
   const [keyBindings, setKeyBindings] = useState({
@@ -200,7 +203,9 @@ export function NortonCommander() {
     const cmd = cmdLine.trim();
     if (!cmd) return;
     setCmdLine("");
+    setCmdHistoryIdx(-1);
     setStatusMsg(`Executing: ${cmd}`);
+    setCmdHistoryTexts((prev) => { const n = [...prev, cmd].slice(-100); localStorage.setItem("cmdHistory", JSON.stringify(n)); return n; });
     try {
       const res = await apiExec(cmd, activePanel === "left" ? leftPath : rightPath);
       const out = [res.stdout, res.stderr].filter(Boolean).join("\n").trim();
@@ -591,7 +596,7 @@ export function NortonCommander() {
     h("div", { className: "flex", style: { alignItems: "center", background: "#000", padding: "3px 8px", borderTop: activeTarget === "terminal" ? "1px solid #00FFFF" : "1px solid #0055AA" } },
       h("span", { style: { color: "#AAAAAA", fontSize: 12 } }, toWinPath(activePanel === "left" ? leftPath : rightPath) + ">"),
       (() => { const f = activePanel === "left" ? leftFilter : rightFilter; return f !== "*" ? h("span", { className: "text-yellow", style: { fontSize: 12, marginLeft: 6 } }, `[${f}]`) : null; })(),
-      h("input", { type: "text", value: cmdLine, onChange: (e) => setCmdLine(e.target.value), onClick: () => setActiveTarget("terminal"), onKeyDown: (e) => { if (activeTarget !== "terminal" && keyBindings[e.key]) { e.preventDefault(); return; } if (e.key === "Enter" && (activeTarget === "terminal" || !bothVisible)) { e.preventDefault(); handleCmdEnter(); } }, style: { background: "transparent", border: "none", color: "#AAAAAA", fontSize: 12, outline: "none", flex: 1, marginLeft: 2, caretColor: "#AAAAAA" }, autoFocus: true })),
+      h("input", { type: "text", value: cmdLine, onChange: (e) => setCmdLine(e.target.value), onClick: () => setActiveTarget("terminal"), onKeyDown: (e) => { if (activeTarget !== "terminal" && keyBindings[e.key]) { e.preventDefault(); return; } if (e.key === "ArrowUp" && cmdHistoryTexts.length > 0) { e.preventDefault(); setCmdHistoryIdx((p) => { const n = Math.min(p + 1, cmdHistoryTexts.length - 1); setCmdLine(cmdHistoryTexts[cmdHistoryTexts.length - 1 - n]); return n; }); return; } if (e.key === "ArrowDown") { e.preventDefault(); setCmdHistoryIdx((p) => { const n = Math.max(p - 1, -1); setCmdLine(n === -1 ? "" : cmdHistoryTexts[cmdHistoryTexts.length - 1 - n]); return n; }); return; } if (e.key === "Enter" && (activeTarget === "terminal" || !bothVisible)) { e.preventDefault(); handleCmdEnter(); } }, style: { background: "transparent", border: "none", color: "#AAAAAA", fontSize: 12, outline: "none", flex: 1, marginLeft: 2, caretColor: "#AAAAAA" }, autoFocus: true })),
 
     // ── Status bar ──────────────────────────────────────────────────────────
     h("div", { className: "flex", style: { background: connected ? "#000040" : "#440000", color: connected ? "#00AAAA" : "#FF5555", padding: "2px 10px", fontSize: 11, borderTop: "1px solid #0055AA", justifyContent: "space-between" } },
