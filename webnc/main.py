@@ -14,13 +14,24 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from webnc.version import VERSION
 
-# Windows: patch uvicorn's loop factory to use SelectorEventLoop instead of
-# ProactorEventLoop, avoiding ConnectionResetError crashes on client disconnect
-# (Python 3.9 bug: github.com/python/cpython/issues/89099).
+# Windows: ProactorEventLoop is required for subprocess (asyncio.create_subprocess_shell),
+# but uvicorn can crash with ConnectionResetError when a client disconnects abruptly.
+# We patch new_event_loop to install a loop exception handler for those.
 if sys.platform == "win32":
     import asyncio
-    import uvicorn.loops.asyncio
-    uvicorn.loops.asyncio.asyncio_loop_factory = lambda use_subprocess=False: asyncio.SelectorEventLoop
+    import logging
+    _loop_logger = logging.getLogger("webnc_server.asyncio")
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    _orig_new_event_loop = asyncio.get_event_loop_policy().new_event_loop
+    def _patched_new_event_loop():
+        loop = _orig_new_event_loop()
+        loop.set_exception_handler(lambda l, ctx: (
+            _loop_logger.debug("Client disconnected (ConnectionResetError, ignored)")
+            if isinstance(ctx.get("exception"), ConnectionResetError)
+            else l.default_exception_handler(ctx)
+        ))
+        return loop
+    asyncio.get_event_loop_policy().new_event_loop = _patched_new_event_loop
 
 # Ensure the project root is on sys.path so that `webnc` is importable
 # when running `python webnc_server.py` or `python webnc/main.py`.
