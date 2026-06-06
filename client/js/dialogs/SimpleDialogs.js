@@ -50,6 +50,26 @@ export function ConfirmDialog({ title, message, onYes, onNo }) {
         h("button", { onClick: onNo, className: "nc-btn" }, "[ No ]"))));
 }
 
+// ── Alert Dialog (red error box with OK) ────────────────────────────────────
+export function AlertDialog({ message, onClose }) {
+  useEffect(() => {
+    const handler = (e) => {
+      if (["Enter", "Escape"].includes(e.key)) { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return h("div", { className: "overlay" },
+    h("div", {
+      style: { background: "#AA0000", border: "2px solid #FFFF00", fontFamily: '"Lucida Console", "Courier New", monospace', fontSize: 13, minWidth: 320, maxWidth: "80vw", boxShadow: "4px 4px 0 rgba(0,0,0,0.5)" },
+    },
+      h("div", { style: { background: "#FFFF00", color: "#AA0000", padding: "2px 8px", fontWeight: "bold", textAlign: "center" } }, "Error"),
+      h("div", { style: { color: "#FFF", padding: "12px 16px", textAlign: "center", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, message),
+      h("div", { className: "text-center", style: { padding: "4px 16px 12px" } },
+        h("button", { onClick: onClose, className: "nc-btn" }, "[ OK ]"))));
+}
+
 // ── Input Dialog ────────────────────────────────────────────────────────────
 export function InputDialog({ title, label, defaultValue, onOk, onCancel }) {
   const [value, setValue] = useState(defaultValue || "");

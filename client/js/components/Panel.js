@@ -3,6 +3,11 @@ const { useEffect, useRef } = React;
 const h = React.createElement;
 import { fmtSize, fmtDate, fileColor, toWinPath } from "../lib/utils.js";
 
+const symName = (item) =>
+  item._isParent ? "\u2191.."
+    : item.is_dir ? `[${item.name}]${item.is_symlink ? "@" : ""}`
+    : `${item.name}${item.is_symlink ? "@" : ""}`;
+
 // ── Brief listing (multi-column CSS) ────────────────────────────────────────
 function briefListing(items, selectedIdx, active, selected, onSelect, onNavigate) {
   return h("div", { style: { columnWidth: 120, columnGap: 0, columnRule: "1px solid #003366", padding: "2px 0", fontSize: 12 } },
@@ -17,7 +22,7 @@ function briefListing(items, selectedIdx, active, selected, onSelect, onNavigate
         key: item.path || i, "data-idx": i, className: cls,
         onClick: () => onSelect(i), onDoubleClick: () => onNavigate(item),
         style: { padding: "1px 4px", cursor: "pointer", color: isCurrent ? "#000" : color, background: isCurrent ? "#00AAAA" : "transparent", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-      }, isSel && !isCurrent ? "► " : "  ", item._isParent ? "↑.." : item.is_dir ? `[${item.name}]` : item.name);
+      }, isSel && !isCurrent ? "► " : "  ", symName(item));
     }));
 }
 
@@ -119,7 +124,7 @@ export function Panel({ path, items, selectedIdx, active, selected, loading, err
           h("tbody", null,
             items.map((item, i) => {
               const isCurrent = active && i === selectedIdx;
-              const displayName = item._isParent ? "↑.." : item.is_dir ? `[${item.name}]` : item.name;
+              const displayName = symName(item);
               const dirPath = item._isParent ? "" : item.path.substring(0, item.path.lastIndexOf("/")) || "/";
               return h("tr", {
                 key: item.path || i, "data-idx": i,
@@ -156,7 +161,7 @@ export function Panel({ path, items, selectedIdx, active, selected, loading, err
               style: { background: isCurrent ? "#00AAAA" : "transparent", color: isCurrent ? "#000" : color },
             },
               h("td", { style: { padding: "2px 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
-                isSel && !isCurrent ? "► " : "  ", item._isParent ? "↑.." : item.is_dir ? `[${item.name}]` : item.name),
+                isSel && !isCurrent ? "► " : "  ", symName(item)),
               h("td", { className: "text-right filesize", style: { width: 75 } }, item._isParent ? "UP--DIR" : item.is_dir ? "<DIR>" : fmtSize(item.size)),
               h("td", { className: "text-right datetime", style: { width: 140 } }, item._isParent ? "" : fmtDate(item.modified)));
           })))),

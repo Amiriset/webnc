@@ -1,5 +1,5 @@
 export { EditorDialog } from "./EditorDialog.js";
-export { FileViewer, ConfirmDialog, InputDialog } from "./SimpleDialogs.js";
+export { FileViewer, ConfirmDialog, InputDialog, AlertDialog } from "./SimpleDialogs.js";
 export { LoginDialog } from "./LoginDialog.js";
 export { DriveDialog } from "./DriveDialog.js";
 export { InfoDialog } from "./InfoDialog.js";

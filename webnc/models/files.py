@@ -7,6 +7,7 @@ class FileInfo(BaseModel):
     name: str
     path: str
     is_dir: bool
+    is_symlink: bool = False
     size: int
     modified: str
     modified_ts: float
@@ -77,3 +78,8 @@ class SearchRequest(BaseModel):
 class EditRequest(BaseModel):
     path: str
     content: str
+
+
+class LinkRequest(BaseModel):
+    target: str
+    link_path: str

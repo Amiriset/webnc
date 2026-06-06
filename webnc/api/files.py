@@ -18,6 +18,7 @@ from webnc.models.files import (
     BatchDeleteRequest,
     SearchRequest,
     EditRequest,
+    LinkRequest,
 )
 from webnc.operations.files import (
     ListOperation,
@@ -29,6 +30,7 @@ from webnc.operations.files import (
     MoveOperation,
     RenameOperation,
     MakeDirectoryOperation,
+    LinkOperation,
     DeleteOperation,
     BatchDeleteOperation,
     SearchOperation,
@@ -205,6 +207,21 @@ async def make_directory(
     op = MakeDirectoryOperation(path=req.path)
     data = await queue.run_sync(op, timeout=FS_TIMEOUT)
     return OperationResult(success=True, message=f"Created {data['path']}", path=data["path"])
+
+
+# ──── Symbolic link ──────────────────────────────────────────────────────────
+
+@router.post("/api/link", response_model=OperationResult)
+async def create_link(
+    req: LinkRequest,
+    queue: OperationQueue = Depends(get_queue),
+):
+    logger.info("POST /api/link  target=%s link_path=%s", req.target, req.link_path)
+    op = LinkOperation(target=req.target, link_path=req.link_path)
+    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
+    kind = data.get("created_as", "symlink")
+    label = {"symlink": "SymLinked", "junction": "Junction", "hardlink": "HardLinked", "mklink": "Linked"}.get(kind, "Linked")
+    return OperationResult(success=True, message=f"{label} \u2192 {data['path']}", path=data["path"])
 
 
 # ──── Delete (F8) ────────────────────────────────────────────────────────────
