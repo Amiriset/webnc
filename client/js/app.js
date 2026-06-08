@@ -125,8 +125,11 @@ export function NortonCommander() {
       const fl = optFilter || (side === "left" ? leftFilter : rightFilter);
       const data = await apiList(path, sb, sd, fl);
       const items = [];
-      items.push({ name: ".", path: data.path, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
-      if (data.parent !== null && data.parent !== undefined) items.push({ name: "..", path: data.parent, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+      if (data.parent !== null && data.parent !== undefined) {
+        const driveRoot = "/" + data.path.split("/").filter(Boolean)[0] + "/";
+        items.push({ name: ".", path: driveRoot, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+        items.push({ name: "..", path: data.parent, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+      }
       items.push(...data.items.map((i) => ({ ...i, _isParent: false })));
       setItems(items); setIdx(0); setSel(new Set());
     } catch (e) { setError(e.message); setItems([]); }
