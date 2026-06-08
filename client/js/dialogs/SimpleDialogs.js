@@ -3,7 +3,7 @@ const { useState, useEffect, useRef } = React;
 const h = React.createElement;
 
 // ── File Viewer (F3) ────────────────────────────────────────────────────────
-export function FileViewer({ filename, content, loading, onClose }) {
+export function FileViewer({ filename, content, loading, onClose, type, src }) {
   useEffect(() => {
     const handler = (e) => {
       if (["Escape", "Enter", "F10"].includes(e.key)) { e.preventDefault(); onClose(); }
@@ -12,18 +12,32 @@ export function FileViewer({ filename, content, loading, onClose }) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  const title = type === "image" ? `── View: ${filename} ──` : `── View: ${filename} ──`;
+
+  let body;
+  if (loading) {
+    body = h("div", { className: "text-center text-yellow", style: { padding: 20 } }, "Loading...");
+  } else if (type === "image") {
+    body = h("div", { className: "flex", style: { justifyContent: "center", alignItems: "center", minHeight: 100, padding: 8 } },
+      h("img", { src, style: { maxWidth: "100%", maxHeight: "65vh", objectFit: "contain" }, alt: filename }));
+  } else if (type === "html") {
+    body = h("iframe", { srcDoc: content, style: { width: "100%", height: "65vh", border: "none", background: "#FFF", color: "#000" }, title: filename, sandbox: "allow-same-origin" });
+  } else {
+    body = h("pre", {
+      className: "scroll-y",
+      style: { margin: 0, padding: "8px 12px", color: "#00FFFF", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.4, minHeight: 100 },
+    }, content);
+  }
+
   return h("div", { className: "overlay", style: { background: "rgba(0,0,0,0.7)" }, onClick: onClose },
     h("div", {
       onClick: (e) => e.stopPropagation(),
       className: "dialog", style: { width: "min(780px, 94vw)", maxHeight: "82vh", fontSize: 13 },
     },
       h("div", { className: "title-bar flex", style: { justifyContent: "space-between" } },
-        h("span", null, `── View: ${filename} ──`),
+        h("span", null, title),
         h("span", { style: { cursor: "pointer" }, onClick: onClose }, "✕")),
-      h("pre", {
-        className: "scroll-y",
-        style: { margin: 0, padding: "8px 12px", color: "#00FFFF", whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.4, minHeight: 100 },
-      }, loading ? "Loading..." : content),
+      body,
       h("div", { className: "text-center text-yellow bor-bot-blue", style: { padding: "2px 8px" } },
         "─── ESC / Enter / F10 to close ──")));
 }

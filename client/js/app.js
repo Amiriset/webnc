@@ -2,7 +2,7 @@
 const { useState, useEffect, useRef, useCallback } = React;
 const h = React.createElement;
 
-import { MONO, fmtSize, fmtDate, toWinPath, fileColor, fnmatch, isArchive } from "./lib/utils.js";
+import { MONO, fmtSize, fmtDate, toWinPath, fileColor, fnmatch, isArchive, isImage, isMarkdown, mdToHtml } from "./lib/utils.js";
 
 import { api, apiList, apiView, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, apiSearch, apiDisk, apiInfo, apiDrives, apiTree, apiArchiveList, pollOperation, getToken, setToken, logout, setLogoutCallback, ncConfig, updateConfig, apiGetConfig, apiExec, apiLink } from "./lib/api.js";
 import { loadConfig, saveConfig } from "./lib/config.js";
@@ -88,6 +88,7 @@ export function NortonCommander() {
     "Enter":"navigate","Tab":"switch_panel","Insert":"select","+":"select_group","-":"deselect_group","*":"invert_selection","Backspace":"go_up",
     "ArrowUp":"up","ArrowDown":"down","Home":"home","End":"end","PageUp":"page_up","PageDown":"page_down"
   });
+  const [associations, setAssociations] = useState({});
   const [activeTarget, setActiveTarget] = useState("panels");
   const [helpDlg, setHelpDlg] = useState(null);
   const [archiveDlg, setArchiveDlg] = useState(null);
@@ -339,9 +340,23 @@ export function NortonCommander() {
       setPath(item.path); fetchDir(item.path, side);
     } else {
       if (curMode === "search") setViewMode("full");
-      setViewer({ filename: item.name, content: "", loading: true }); try { const data = await apiView(item.path); setViewer({ filename: item.name, content: data.content, loading: false }); } catch (e) { setViewer({ filename: item.name, content: `Error: ${e.message}`, loading: false }); }
+      const ext = item.extension ? "." + item.extension.toLowerCase() : "";
+      const action = associations[ext];
+      if (action === "edit") {
+        try { const v = await apiView(item.path, true); setEditorDlg({ filename: item.name, content: v.content, path: item.path }); } catch (err) { setAlertDlg({ message: `Edit error: ${err.message}` }); }
+      } else if (action === "archive") {
+        const doOpen = async (pw) => { setArchiveDlg({ path: item.path, name: item.name, loading: true, password: pw }); try { const data = await apiArchiveList(item.path, pw); setArchiveDlg({ path: item.path, name: item.name, data, loading: false, password: pw }); } catch (err) { if (err.message && err.message.includes("password")) { setArchiveDlg(null); setInputDlg({ title: "Archive Password", label: `Password for ${item.name}:`, defaultValue: "", onOk: (p) => { setInputDlg(null); doOpen(p); }, onCancel: () => setInputDlg(null) }); } else { setAlertDlg({ message: err.message }); } } }; doOpen();
+      } else if (isImage(item.name)) {
+        setViewer({ filename: item.name, type: "image", src: "", loading: true });
+        try { const tok = getToken(); const r = await fetch(`/api/download?path=${encodeURIComponent(item.path)}`, { headers: tok ? { "X-Session-Token": tok } : {} }); if (!r.ok) throw new Error("Download failed"); const blob = await r.blob(); const url = URL.createObjectURL(blob); setViewer({ filename: item.name, type: "image", src: url, loading: false }); } catch (err) { setAlertDlg({ message: `Preview error: ${err.message}` }); }
+      } else if (isMarkdown(item.name)) {
+        setViewer({ filename: item.name, type: "html", content: "", loading: true });
+        try { const v = await apiView(item.path); setViewer({ filename: item.name, type: "html", content: mdToHtml(v.content), loading: false }); } catch (err) { setAlertDlg({ message: `View error: ${err.message}` }); }
+      } else {
+        setViewer({ filename: item.name, content: "", loading: true }); try { const data = await apiView(item.path); setViewer({ filename: item.name, content: data.content, loading: false }); } catch (e) { setViewer({ filename: item.name, content: `Error: ${e.message}`, loading: false }); }
+      }
     }
-  }, [fetchDir, leftViewMode, rightViewMode]);
+  }, [fetchDir, leftViewMode, rightViewMode, associations, apiView, apiArchiveList]);
 
   // ── Preview (quick view) ──────────────────────────────────────────────────
   const fetchPreview = useCallback(async (side) => {
@@ -448,9 +463,9 @@ export function NortonCommander() {
     return () => window.removeEventListener("keydown", handler);
   }, [activePanel, leftItems, rightItems, leftIdx, rightIdx, leftPath, rightPath, leftSelected, rightSelected, leftViewMode, rightViewMode, leftTreeNodes, rightTreeNodes, leftTreeCursor, rightTreeCursor, viewer, editorDlg, dialog, inputDlg, infoDlg, driveDlg, searchDlg, sysInfoDlg, compareDlg, syncDlg, historyDlg, configDlg, timeoutsDlg, helpDlg, archiveDlg, loginDlg, leftPanelVisible, rightPanelVisible, navigate, fetchDir, toggleFullscreen, refreshBoth, handleSearchResults, handleLogout, treeNavigateOpposite, toggleTreeNode, keyBindings, apiView, apiInfo, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, setStatusMsg, setOpenMenu, setViewer, setEditorDlg, setInfoDlg, setSearchDlg, setHelpDlg, setInputDlg, setDialog, setLeftIdx, setRightIdx, setLeftSelected, setRightSelected, setLeftTreeCursor, setRightTreeCursor, setActivePanel, activeTarget]);
 
-  // ── Fetch keybindings from config ───────────────────────────────────────────
+  // ── Fetch keybindings + associations from config ──────────────────────────
   useEffect(() => {
-    apiGetConfig().then(cfg => setKeyBindings(cfg.keybindings || {})).catch(() => {});
+    apiGetConfig().then(cfg => { setKeyBindings(cfg.keybindings || {}); setAssociations(cfg.associations || {}); }).catch(() => {});
   }, []);
 
   // ── Ctrl+O ────────────────────────────────────────────────────────────────
@@ -634,7 +649,7 @@ export function NortonCommander() {
         h("span", { style: { color: "#00AAAA", marginLeft: 2 } }, label)))),
 
     // ── Dialogs ─────────────────────────────────────────────────────────────
-    viewer && h(FileViewer, { filename: viewer.filename, content: viewer.content, loading: viewer.loading, onClose: () => setViewer(null) }),
+    viewer && h(FileViewer, { filename: viewer.filename, content: viewer.content, loading: viewer.loading, type: viewer.type, src: viewer.src, onClose: () => setViewer(null) }),
     editorDlg && h(EditorDialog, { filename: editorDlg.filename, content: editorDlg.content, onSave: (text) => handleEditorSave(editorDlg.path, text), onClose: () => setEditorDlg(null) }),
     dialog && h(ConfirmDialog, { title: dialog.title, message: dialog.message, onYes: dialog.onYes, onNo: dialog.onNo }),
     alertDlg && h(AlertDialog, { message: alertDlg.message, onClose: () => setAlertDlg(null) }),
