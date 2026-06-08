@@ -12,3 +12,4 @@ export { ConfigDialog } from "./ConfigDialog.js";
 export { TimeoutsDialog } from "./TimeoutsDialog.js";
 export { HelpDialog } from "./HelpDialog.js";
 export { ArchiveDialog } from "./ArchiveDialog.js";
+export { TreeDialog } from "./TreeDialog.js";
