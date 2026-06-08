@@ -29,6 +29,26 @@ EDITOR_DEFAULTS = {
     "max_edit_size": 1048576,
 }
 
+ASSOCIATIONS_DEFAULTS = {
+    ".py": "edit",
+    ".js": "edit",
+    ".ts": "edit",
+    ".html": "edit",
+    ".css": "edit",
+    ".json": "edit",
+    ".md": "view",
+    ".txt": "view",
+    ".zip": "archive",
+    ".tar": "archive",
+    ".gz": "archive",
+    ".tgz": "archive",
+    ".7z": "archive",
+    ".rar": "archive",
+    ".jpg": "preview",
+    ".png": "preview",
+    ".gif": "preview",
+}
+
 KEYBINDING_DEFAULTS = {
     "F1": "help",
     "F2": "menu_left",
@@ -87,6 +107,9 @@ class ConfigManager:
         editor_cfg = self._data.setdefault("editor", {})
         for k, v in EDITOR_DEFAULTS.items():
             editor_cfg.setdefault(k, v)
+        assoc = self._data.setdefault("associations", {})
+        for k, v in ASSOCIATIONS_DEFAULTS.items():
+            assoc.setdefault(k, v)
         self.save()
 
     def save(self) -> None:
@@ -133,3 +156,7 @@ class ConfigManager:
     def get_max_edit_size(self) -> int:
         with self._lock:
             return self._data.get("editor", {}).get("max_edit_size", 1048576)
+
+    def get_associations(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._data.get("associations", {}))
