@@ -7,7 +7,7 @@ import { MONO, fmtSize, fmtDate, toWinPath, fileColor, fnmatch, isArchive, isIma
 import { api, apiList, apiView, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, apiSearch, apiDisk, apiInfo, apiDrives, apiTree, apiArchiveList, pollOperation, getToken, setToken, logout, setLogoutCallback, ncConfig, updateConfig, apiGetConfig, apiExec, apiLink } from "./lib/api.js";
 import { loadConfig, saveConfig } from "./lib/config.js";
 import { Panel } from "./components/Panel.js";
-import { FileViewer, ConfirmDialog, InputDialog, AlertDialog, LoginDialog, DriveDialog, InfoDialog, SysInfoDialog, CompareDialog, SyncDialog, HistoryDialog, SearchDialog, ConfigDialog, TimeoutsDialog, HelpDialog, ArchiveDialog, EditorDialog } from "./dialogs/index.js";
+import { FileViewer, ConfirmDialog, InputDialog, AlertDialog, LoginDialog, DriveDialog, InfoDialog, SysInfoDialog, CompareDialog, SyncDialog, HistoryDialog, SearchDialog, ConfigDialog, TimeoutsDialog, HelpDialog, ArchiveDialog, EditorDialog, TreeDialog } from "./dialogs/index.js";
 
 export function NortonCommander() {
   // ── Panel state ───────────────────────────────────────────────────────────
@@ -90,6 +90,7 @@ export function NortonCommander() {
   });
   const [associations, setAssociations] = useState({});
   const [activeTarget, setActiveTarget] = useState("panels");
+  const [treeDlg, setTreeDlg] = useState(null);
   const [helpDlg, setHelpDlg] = useState(null);
   const [archiveDlg, setArchiveDlg] = useState(null);
   const [loginDlg, setLoginDlg] = useState(null);
@@ -124,7 +125,11 @@ export function NortonCommander() {
       const fl = optFilter || (side === "left" ? leftFilter : rightFilter);
       const data = await apiList(path, sb, sd, fl);
       const items = [];
-      if (data.parent !== null && data.parent !== undefined) items.push({ name: "..", path: data.parent, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+      if (data.parent !== null && data.parent !== undefined) {
+        const driveRoot = "/" + data.path.split("/").filter(Boolean)[0] + "/";
+        items.push({ name: ".", path: driveRoot, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+        items.push({ name: "..", path: data.parent, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+      }
       items.push(...data.items.map((i) => ({ ...i, _isParent: false })));
       setItems(items); setIdx(0); setSel(new Set());
     } catch (e) { setError(e.message); setItems([]); }
@@ -393,6 +398,7 @@ export function NortonCommander() {
     if (viewer || editorDlg || dialog || inputDlg || infoDlg || driveDlg || searchDlg || sysInfoDlg || compareDlg || syncDlg || historyDlg || configDlg || timeoutsDlg || helpDlg || archiveDlg || loginDlg) return;
     const handler = async (e) => {
       if (activeTarget === "terminal") return;
+      if (treeDlg) return;
       const { items, idx, setIdx, path, selected, setSelected } = activePanel === "left"
         ? { items: leftItems, idx: leftIdx, setIdx: setLeftIdx, path: leftPath, selected: leftSelected, setSelected: setLeftSelected }
         : { items: rightItems, idx: rightIdx, setIdx: setRightIdx, path: rightPath, selected: rightSelected, setSelected: setRightSelected };
@@ -461,7 +467,7 @@ export function NortonCommander() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activePanel, leftItems, rightItems, leftIdx, rightIdx, leftPath, rightPath, leftSelected, rightSelected, leftViewMode, rightViewMode, leftTreeNodes, rightTreeNodes, leftTreeCursor, rightTreeCursor, viewer, editorDlg, dialog, inputDlg, infoDlg, driveDlg, searchDlg, sysInfoDlg, compareDlg, syncDlg, historyDlg, configDlg, timeoutsDlg, helpDlg, archiveDlg, loginDlg, leftPanelVisible, rightPanelVisible, navigate, fetchDir, toggleFullscreen, refreshBoth, handleSearchResults, handleLogout, treeNavigateOpposite, toggleTreeNode, keyBindings, apiView, apiInfo, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, setStatusMsg, setOpenMenu, setViewer, setEditorDlg, setInfoDlg, setSearchDlg, setHelpDlg, setInputDlg, setDialog, setLeftIdx, setRightIdx, setLeftSelected, setRightSelected, setLeftTreeCursor, setRightTreeCursor, setActivePanel, activeTarget]);
+  }, [activePanel, leftItems, rightItems, leftIdx, rightIdx, leftPath, rightPath, leftSelected, rightSelected, leftViewMode, rightViewMode, leftTreeNodes, rightTreeNodes, leftTreeCursor, rightTreeCursor, viewer, editorDlg, dialog, inputDlg, infoDlg, driveDlg, searchDlg, sysInfoDlg, compareDlg, syncDlg, historyDlg, configDlg, timeoutsDlg, helpDlg, archiveDlg, loginDlg, treeDlg, leftPanelVisible, rightPanelVisible, navigate, fetchDir, toggleFullscreen, refreshBoth, handleSearchResults, handleLogout, treeNavigateOpposite, toggleTreeNode, keyBindings, apiView, apiInfo, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, setStatusMsg, setOpenMenu, setViewer, setEditorDlg, setInfoDlg, setSearchDlg, setHelpDlg, setInputDlg, setDialog, setLeftIdx, setRightIdx, setLeftSelected, setRightSelected, setLeftTreeCursor, setRightTreeCursor, setActivePanel, activeTarget]);
 
   // ── Fetch keybindings + associations from config ──────────────────────────
   useEffect(() => {
@@ -527,7 +533,7 @@ export function NortonCommander() {
       { label: "Delete", action: () => dispatchKey("F8"), shortcut: "F8" },
     ],
     "Commands": [
-      { label: "NDC tree", disabled: true },
+      { label: "NDC tree", action: () => setTreeDlg(true) },
       { label: "Find File", action: () => setSearchDlg({ onResults: handleSearchResults }) },
       { label: "History", action: handleHistory },
       { label: fullscreen ? "  [X] EGA Lines" : "  EGA Lines", action: toggleFullscreen },
@@ -663,6 +669,7 @@ export function NortonCommander() {
     historyDlg && h(HistoryDialog, { entries: historyDlg, activePanel, onClose: () => setHistoryDlg(null), onNavigate: (p, side) => { const sp = side === "left" ? setLeftPath : setRightPath; sp(p); fetchDir(p, side); } }),
     configDlg && h(ConfigDialog, { config, onSave: (c) => { saveConfig(c); updateConfig({ showHidden: c.showHidden }); setConfig(c); setConfigDlg(null); refreshBoth(); }, onClose: () => setConfigDlg(null) }),
     timeoutsDlg && h(TimeoutsDialog, { onClose: () => setTimeoutsDlg(null) }),
+    treeDlg && h(TreeDialog, { onSelect: (p) => { setLeftPath(p); setRightPath(p); fetchDir(p, "left"); fetchDir(p, "right"); setTreeDlg(null); }, onClose: () => setTreeDlg(null) }),
     helpDlg && h(HelpDialog, { onClose: () => setHelpDlg(null) }),
     archiveDlg && h(ArchiveDialog, { state: archiveDlg, onClose: () => setArchiveDlg(null), onNavigate: () => {} }),
     loginDlg && h(LoginDialog, { error: loginError, onLogin: handleLogin, onClose: () => { if (getToken()) setLoginDlg(null); } }),

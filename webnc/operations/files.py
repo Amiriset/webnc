@@ -525,7 +525,23 @@ class ListOperation(AbstractOperation[dict]):
         show_hidden = self.show_hidden
         filter = self.filter
 
-        for entry in dir_path.iterdir():
+        try:
+            entries = list(dir_path.iterdir())
+        except (PermissionError, OSError) as e:
+            logger.warning("list: cannot read %s — %s", self.path, e)
+            parent = None
+            if not str(dir_path.resolve()).rstrip("\\").endswith(":"):
+                parent = relative_path(dir_path.parent)
+            return OperationResult(success=True, data={
+                "path": relative_path(dir_path),
+                "parent": parent,
+                "items": [],
+                "total_files": 0,
+                "total_dirs": 0,
+                "total_size": 0,
+            })
+
+        for entry in entries:
             if not show_hidden and entry.name.startswith("."):
                 continue
             if filter and not fnmatch.fnmatch(entry.name, filter):

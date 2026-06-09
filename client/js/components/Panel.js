@@ -4,7 +4,8 @@ const h = React.createElement;
 import { fmtSize, fmtDate, fileColor, toWinPath } from "../lib/utils.js";
 
 const symName = (item) =>
-  item._isParent ? "\u2191.."
+  item.name === ".." ? "\u2191.."
+    : item.name === "." ? "[.]"
     : item.is_dir ? `[${item.name}]${item.is_symlink ? "@" : ""}`
     : `${item.name}${item.is_symlink ? "@" : ""}`;
 
@@ -162,7 +163,7 @@ export function Panel({ path, items, selectedIdx, active, selected, loading, err
             },
               h("td", { style: { padding: "2px 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
                 isSel && !isCurrent ? "► " : "  ", symName(item)),
-              h("td", { className: "text-right filesize", style: { width: 75 } }, item._isParent ? "UP--DIR" : item.is_dir ? "<DIR>" : fmtSize(item.size)),
+              h("td", { className: "text-right filesize", style: { width: 75 } }, item._isParent ? item.name === "." ? "ROOT" : "UP--DIR" : item.is_dir ? "<DIR>" : fmtSize(item.size)),
               h("td", { className: "text-right datetime", style: { width: 140 } }, item._isParent ? "" : fmtDate(item.modified)));
           })))),
 
