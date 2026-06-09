@@ -45,10 +45,12 @@ from webnc.api.config_api import router as config_router
 from webnc.api.exec import router as exec_router
 from webnc.config_manager import ConfigManager
 from webnc.operations.queue import OperationQueue
+from webnc.services.windows_service import WindowsFileService
 
 # ── Globals ────────────────────────────────────────────────────────────────
 operation_queue = OperationQueue(max_workers=4)
 config_manager = ConfigManager()
+file_service = WindowsFileService()
 
 
 def create_app():
