@@ -158,6 +158,8 @@ $ py webnc_server.py --help
 - [x] Operation retry/timeout config — per-operation in `config.json`, polling on frontend
 - [x] Command history — ArrowUp/Down, localStorage-backed, max 100 entries
 - [x] Symbolic links — `POST /api/link`, symlink/junction/hardlink fallback
+- [x] NDC Tree Dialog — full-screen directory tree, lazy-load, arrow-key nav
+- [x] Extension associations — configurable default actions per file type
 
 ### Productize Core
 - [ ] Linux support via VFS abstraction layer
@@ -183,10 +185,9 @@ $ py webnc_server.py --help
 - [ ] Landing page
 
 ### Also Planned
-- [ ] Extension-to-action associations
+### Also Planned
 - [ ] Terminal emulation (Ctrl+O) — command input exists, full terminal planned
 - [ ] Directory hotlist
-- [ ] NDC Tree dialog
 
 ## Documentation
 

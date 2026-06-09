@@ -42,11 +42,11 @@ The main application entry point that:
 - Creates the FastAPI application instance
 - Sets up middleware (authentication, CORS, etc.)
 - Mounts all API routers
-- Initializes the configuration manager
+- Initializes the configuration manager, operation queue, and file service
 - Configures exception handlers
 - Sets up startup/shutdown events
 - Configures Windows ProactorEventLoop for subprocess support
-- Installs ConnectionResetError exception handler on event loop
+- Suppresses asyncio ConnectionResetError noise via logger CRITICAL
 - Passes custom `log_config` to `uvicorn.run()` for consistent logging
 
 Key components:
@@ -194,22 +194,12 @@ Abstract base class for all operations:
   - `op_config_key`: Identifies operation type in config
 
 #### files.py
-File operation implementations:
-- `ListOperation`: Directory listing with sorting/filtering
-- `ViewOperation`: File content reading (text <64KB)
-- `WriteOperation`: File creation/overwrite (for editor)
-- `DownloadOperation`: File download preparation
-- `UploadOperation`: File upload with size validation
-- `CopyOperation`: shutil.copytree/shutil.copy2 with metadata preservation
-- `MoveOperation`: shutil.move with cross-device handling
-- `RenameOperation`: Path.rename with validation
-- `MakeDirectoryOperation`: Path.mkdir with parents
-- `LinkOperation`: os.symlink with mklink /J (junction) / /H (hardlink) fallback
-- `DeleteOperation`: shutil.rmtree or Path.unlink
-- `BatchDeleteOperation`: Multiple delete with individual error handling
-- `SearchOperation`: os.walk with glob/regex pattern matching
-- `FileInfoOperation`: File/directory metadata with Windows owner/permissions
-- `TreeOperation`: Lazy directory tree (immediate subdirs)
+File operation implementations (trimmed to 4 queued operations after service layer refactoring):
+- `CopyOperation`: Delegates to `file_service.copy()` (async with retry)
+- `MoveOperation`: Delegates to `file_service.move()` (async with retry)
+- `BatchDeleteOperation`: Delegates to `file_service.batch_delete()` (async with retry)
+- `SearchOperation`: Delegates to `file_service.search()` (async with retry)
+- All sync operations (list, view, write, rename, mkdir, link, delete, info, tree, download, upload) now live in `WindowsFileService`
 - Each implements `_is_non_retriable()` for specific error types
 
 #### compare.py
@@ -308,11 +298,13 @@ Pydantic models for request/response validation:
 - Used throughout API layer for input/output validation
 
 ### Services Layer (webnc/services/)
-Currently minimal, planned for future business logic:
-- Intended home for complex operations
-- Future location for VFS providers (SFTP/FTP, cloud storage)
-- Planned RBAC and permission services
-- Will house business rules separate from API concerns
+Business logic layer with platform abstraction:
+- `file_service.py`: `FileService` ABC with 14 abstract methods
+- `windows_service.py`: `WindowsFileService` implementation (all business logic, platform-specific helpers)
+- Methods: `list_directory`, `read_file`, `write_file`, `download_path`, `upload`, `copy`, `move`, `rename`, `make_directory`, `create_link`, `delete`, `batch_delete`, `search`, `file_info`, `tree`
+- Returns plain dicts with `success`/`error` fields (no Pydantic in interface)
+- Global singleton in `main.py`, injected into API via `Depends(get_file_service)`
+- Future: `LinuxFileService` for cross-platform support
 
 ### Configuration Layer (config/)
 - `config.json`: Auto-generated operation timeout/retry settings, keybindings, exec rules, editor limits
