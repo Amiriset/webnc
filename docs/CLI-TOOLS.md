@@ -152,6 +152,7 @@ A comprehensive PowerShell script for managing the WebNC server lifecycle, inclu
 - Prevents multiple instances from running on same port
 - Graceful shutdown handling
 - Force-kill fallback for unresponsive processes
+- Service layer (`FileService` ABC) enables cross-platform support
 
 #### Health Monitoring (monitor mode)
 - Periodic health checks via `/api/health` endpoint
@@ -176,6 +177,7 @@ A comprehensive PowerShell script for managing the WebNC server lifecycle, inclu
 - Explicit `-Insecure` flag required for HTTP mode
 - Clear warnings when binding to `0.0.0.0`
 - Certificate validation bypass only for health checks in PowerShell
+- Service layer (`FileService` ABC) enforces consistent security across platforms
 
 ## run.bat
 
@@ -465,23 +467,26 @@ py webnc_server.py --host 127.0.0.1 --port 8000
 ## Best Practices
 
 ### Security
-1. **Always use HTTPS in production** - Never expose `--insecure` to untrusted networks
+1. **Always use HTTPS in production** — Never expose `--insecure` to untrusted networks
 2. **Bind to localhost only** for local use (`--host 127.0.0.1`)
 3. **Use strong certificates** for deployment - replace auto-generated cert with CA-signed
 4. **Keep dependencies updated** - Regularly check `requirements.txt` for updates
 5. **Monitor logs** - Check `logs\nc_server.log` for security warnings
+6. **Service layer** - `FileService` ABC enables consistent security across platforms
 
 ### Performance
 1. **Adjust timeouts appropriately** - Longer for large file operations, shorter for quick tasks
 2. **Monitor thread pool** - Ensure adequate workers for concurrent operations
 3. **Use reasonable retry values** - 3-5 retries is usually sufficient
 4. **Consider hardware** - SSD storage significantly improves filesystem operation performance
+5. **OperationQueue** - Designed as async operation boundary, not high-throughput parallelism
 
 ### Maintenance
 1. **Backup configuration** - `config.json` and localStorage settings
 2. **Rotate logs** - Log rotation is automatic (5MB × 3 backups)
 3. **Update regularly** - Pull latest changes and test in staging first
 4. **Document customizations** - Track any changes to default behavior
+5. **Service layer** - `FileService` ABC enables consistent maintenance across platforms
 
 ## Troubleshooting
 
@@ -518,6 +523,7 @@ taskkill /F /PID <pid>
 - Check `logs\nc_server.log` for error messages
 - Use `bin\run.bat monitor` for automatic restart on failure
 - In extreme cases, manually kill process and restart
+- Service layer (`FileService` ABC) isolates platform-specific code
 
 **Issue**: Frontend shows blank page
 **Solution**: 
@@ -544,6 +550,7 @@ taskkill /F /PID <pid>
 4. **Database utilities** - For planned metadata storage
 5. **Performance profiling** - Built-in profiling tools
 6. **Docker integration** - Dockerfile and docker-compose support
+7. **Service layer** - `LinuxFileService` for cross-platform support
 
 ### Planned Configuration Enhancements
 1. **Runtime configuration validation** - Prevent invalid settings
@@ -551,5 +558,6 @@ taskkill /F /PID <pid>
 3. **Change history** - Track configuration modifications over time
 4. **Scheduled operations** - Cron-like scheduling for regular tasks
 5. **Resource limits** - Memory, CPU, and disk usage controls
+6. **Service layer** - `FileService` ABC enables consistent configuration across platforms
 
 This documentation covers all CLI tools provided with WebNC. For the most current information, please refer to the individual tool's help output (`py webnc_server.py --help`) and the `History.md` file which contains detailed development progress.
