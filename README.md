@@ -61,6 +61,7 @@ Token is ephemeral (RAM only, 5-min window), printed once at startup.
 | Drive switch | Alt+F1 / Alt+F2 | Left / right panel drive selector |
 | Sync directories | Commands menu | TC-style dual-pane sync with per-file action cycling |
 | Compare directories | Commands menu | 4-tab diff view (Different / Only Left / Only Right / Same) |
+| NDC Tree | Commands menu | Full-screen directory tree, lazy-load, arrow-key nav |
 | Archive browsing | F4 on .zip/.tar | List archive contents (password support for ZIP) |
 | System info | Commands menu | OS, CPU, RAM, uptime, drives |
 | History | Commands menu | Per-panel navigation history (last 50) |
@@ -86,7 +87,8 @@ Server config is managed via `Commands → Timeouts...` dialog or `PUT /api/conf
 webnc_server.py          # Entry point
 webnc/                   # Backend package
 ├── api/                 # REST endpoints (files, sync, compare, archive, ...)
-├── operations/          # Thread-pool operation classes with retry logic
+├── operations/          # Async operation boundary (Copy, Move, BatchDelete, Search)
+├── services/            # Business logic layer (FileService ABC + WindowsFileService)
 ├── models/              # Pydantic request/response models
 ├── security/            # TLS, auth middleware, token provider
 ├── vfs/                 # Path sanitization (/C/Users → C:\Users)
@@ -100,6 +102,8 @@ client/                  # Frontend (React, no build step)
 config/config.json       # Operation settings (auto-created)
 bin/run.bat              # CMD wrapper
 bin/manage_server.ps1    # PowerShell management
+history/                 # Development history summaries (HISTORY.00001-00015)
+version.txt              # Application version
 ```
 
 **Detailed:** [REPOSITORY_MAP.md](docs/REPOSITORY_MAP.md) · [CODEBASE_DOCUMENTATION.md](docs/CODEBASE_DOCUMENTATION.md)
@@ -121,6 +125,7 @@ bin/manage_server.ps1    # PowerShell management
 | `/api/sync/plan`, `/api/sync/execute` | GET/POST | Sync |
 | `/api/archive/list` | GET | Archive contents |
 | `/api/exec` | POST | Execute shell command |
+| `/api/link` | POST | Create symlink/junction/hardlink |
 | `/api/operation/{id}` | GET | Poll async status |
 | `/api/config` | GET/PUT | Server config |
 | `/api/health` | GET | Health check (no auth) |
@@ -153,6 +158,8 @@ $ py webnc_server.py --help
 - [x] Keyboard shortcut config — `keybindings` in `config.json`, action dispatch map
 - [x] Command input — `POST /api/exec`, interactive `>` line, terminal output area
 - [x] Operation retry/timeout config — per-operation in `config.json`, polling on frontend
+- [x] Command history — ArrowUp/Down, localStorage-backed, max 100 entries
+- [x] Symbolic links — `POST /api/link`, symlink/junction/hardlink fallback
 
 ### Productize Core
 - [ ] Linux support via VFS abstraction layer
@@ -167,7 +174,7 @@ $ py webnc_server.py --help
 - [ ] Image / text preview (inline)
 - [ ] Clipboard copy / paste
 - [ ] Archive extract / create
-- [ ] Editor enhancement — find/replace, `max_edit_size` config
+- [ ] Editor enhancement — find/replace (max_edit_size config already implemented)
 
 ### Self-Hosted Product
 - [ ] SFTP / FTP provider via VFS
@@ -178,9 +185,8 @@ $ py webnc_server.py --help
 - [ ] Landing page
 
 ### Also Planned
-- [ ] Symlink support (`/api/link`)
 - [ ] Extension-to-action associations
-- [ ] Terminal emulation (Ctrl+O)
+- [ ] Terminal emulation (Ctrl+O) — command input exists, full terminal planned
 - [ ] Directory hotlist
 - [ ] NDC Tree dialog
 
@@ -197,7 +203,9 @@ $ py webnc_server.py --help
 | [SECURITY.md](docs/SECURITY.md) | Threat model, vulnerability reporting |
 | [COMPLIANCE.md](docs/COMPLIANCE.md) | Security audit, data handling, compliance |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Known issues and solutions |
-| [CHANGELOG.md](CHANGELOG.md) | Version history |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
+| [History.md](History.md) | Detailed development history |
+| [history/](history/) | Per-milestone development summaries (00001–00015) |
 
 ## License
 

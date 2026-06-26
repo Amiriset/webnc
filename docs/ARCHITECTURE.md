@@ -40,6 +40,7 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Router mounting for all API endpoints
 - Configuration manager initialization
 - SSL/TLS context setup
+- Custom `log_config` passed to `uvicorn.run()` for consistent logging format
 
 #### 2. API Layer (`webnc/api/`)
 - RESTful endpoint implementations
@@ -74,12 +75,14 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Authentication providers and middleware
 - TLS/SSL certificate generation
 - Request signing and verification
+- Token printed to stderr only (not logger) to prevent token leakage to log files
 - Modules:
   - `auth_provider.py`: AuthProvider interface definition
   - `console_token.py`: ConsoleTokenProvider (default)
   - `middleware.py`: SessionAuthMiddleware
   - `tls.py`: TLS certificate generation and context creation
   - `nc_crypto.py`: Cryptographic utilities
+  - `_state.py`: Auth provider state management
 
 #### 5. Virtual File System (`webnc/vfs/`)
 - Path sanitization and conversion
@@ -130,6 +133,12 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Event handlers for keyboard shortcuts
 - Menu system integration
 - Dialog orchestration
+- Terminal/command input area (scrollable output, cmdHistory)
+- `activeTarget` state (`"panels"` | `"terminal"`) — keyboard goes exclusively to the active target
+- Tab cycles: left panel → right panel → terminal → left panel
+- Ctrl+O hides panels → auto-switches to terminal; shows panels → switches back
+- Fullscreen toggle via `document.documentElement.requestFullscreen()` (F11)
+- Configurable keyboard shortcuts via ACTION dispatch map (reads `keybindings` from config)
 
 #### 4. Components (`js/components/`)
 - `Panel.js`: File panel with all view modes (Brief, Full, Quick, Info, Tree, Search)
@@ -256,11 +265,19 @@ Frontend Action (e.g., F5 Copy)
 - Configurable thread pool size in OperationQueue
 - Smart retry logic distinguishes retriable vs non-retriable errors
 
+> **OperationQueue is not primarily designed for high-throughput parallel execution.** Its main purpose is to decouple long-running filesystem operations from HTTP request handling and provide a stable polling-based operation lifecycle.
+
+### 2.1 Windows Event Loop
+- `WindowsProactorEventLoopPolicy` required for `asyncio.create_subprocess_shell` (exec endpoint)
+- `SelectorEventLoop` raises `NotImplementedError` on Windows for subprocess creation
+- `asyncio` logger set to `CRITICAL` to suppress `ConnectionResetError` noise from client disconnects
+
 ### 3. Modular Design
-- Clear separation of concerns: API → Operations → VFS → FS
+- Clear separation of concerns: API → Services → VFS → FS
 - Dependency injection for configuration and logging
 - Pluggable authentication providers
 - Extensible VFS layer for future network/storage providers
+- Service layer (`FileService` ABC) enables future Linux/Mac implementations
 
 ### 4. Configuration Management
 - Runtime configuration via API (`/config` endpoints)
@@ -287,6 +304,7 @@ Frontend Action (e.g., F5 Copy)
 - All filesystem calls moved to thread pool
 - Non-blocking API endpoints maintain responsiveness
 - Configurable timeouts prevent hanging operations
+- **OperationQueue decouples long-running ops from HTTP lifecycle** — not a parallel execution engine
 
 ### 2. Caching
 - No built-in caching (designed for real-time filesystem access)
@@ -296,7 +314,7 @@ Frontend Action (e.g., F5 Copy)
 ### 3. Memory Management
 - Rotating logs prevent unbounded disk growth
 - Ephemeral authentication tokens minimize memory footprint
-- Operation queue prevents unbounded memory growth
+- Operation queue prevents unbounded memory growth via automatic cleanup
 - Frontend uses React's efficient reconciliation
 
 ### 4. Network Efficiency
@@ -322,6 +340,7 @@ Frontend Action (e.g., F5 Copy)
 ### 3. Filesystem Access
 - No sandbox - designed for trusted admin use
 - Path validation prevents directory traversal
+- Service layer enforces permission checks
 - Permission errors logged but don't fail operations
 - Owner information retrieved via Win32 API only when needed
 
@@ -345,15 +364,21 @@ Frontend Action (e.g., F5 Copy)
 - Register via `--auth` CLI argument
 - Examples planned: AD/Kerberos, JWT, LDAP
 
-### 2. Virtual File System
+### 2. Platform Services
+- Implement `FileService` ABC with 14 abstract methods
+- Register in `main.py` as `file_service` global
+- Examples: `LinuxFileService`, `MacFileService`
+
+### 3. Virtual File System
 - Extend `webnc/vfs/` with new providers
 - Implement SFTP/FTP, cloud storage, etc.
 - Maintain same path interface (`/C/Users/...`)
 
-### 3. Operations
+### 4. Operations
 - Subclass `AbstractOperation` for new operation types
 - Register in `webnc/operations/` directory
 - Automatically available via API
+- Built-in: Copy, Move, Rename, Mkdir, Link, Delete, BatchDelete, Search, List, View, Write, Download, Upload, FileInfo, Tree
 
 ### 4. Frontend Components
 - Add new dialogs in `js/dialogs/`
@@ -369,6 +394,64 @@ Frontend Action (e.g., F5 Copy)
 ## Deployment Architecture
 
 ### Development Mode
+```
+$ py webnc_server.py --reload
+```
+- Auto-reload enabled
+- Debug logging
+- HTTP or HTTPS based on flags
+
+### Production Mode
+```
+$ .\run.bat
+```
+- HTTPS enabled by default
+- Self-signed certificate auto-generated
+- Health check monitoring with auto-restart
+- Log rotation active
+
+### Containerized (Planned)
+```dockerfile
+# Future Docker support
+FROM python:3.9-slim
+COPY . /app
+WORKDIR /app
+RUN pip install -r requirements.txt
+EXPOSE 8000
+CMD ["py", "webnc_server.py", "--host", "0.0.0.0"]
+```
+
+### Reverse Proxy (Future)
+```nginx
+# Example Nginx configuration
+server {
+    listen 443 ssl;
+    server_name webnc.example.com;
+    
+    ssl_certificate /path/to/cert.crt;
+    ssl_certificate_key /path/to/key.key;
+    ssl_protocols TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+### Architecture Layers
+```
+HTTP Request
+    ↓
+FastAPI (API layer)
+    ↓
+FileService (business logic layer)
+    ↓
+VFS (path conversion layer)
+    ↓
+Filesystem (OS layer)
 ```
 $ py webnc_server.py --reload
 ```
@@ -423,18 +506,21 @@ server {
 - Rotating file handlers prevent disk exhaustion
 - All API calls logged at INFO level
 - Errors and warnings captured with stack traces
+- Service layer logs platform-specific operations
 
 ### 2. Health Checks
 - `/api/health` endpoint for liveness probing
 - Database connectivity (when added)
 - Disk space checks
 - Thread pool status
+- Service layer health verification
 
 ### 3. Metrics (Planned)
 - Operation success/failure rates
 - Average operation durations
 - Active operation counts
 - Memory and CPU usage
+- Service layer performance metrics
 
 ### 4. Alerting (Planned)
 - Failed operation thresholds
@@ -447,7 +533,8 @@ server {
 ### 1. Platform Specific
 - Currently Windows-only due to Win32 API usage
 - Path handling assumes Windows drive letters
-- Future VFS abstraction layer planned for cross-platform
+- Service layer abstraction enables future cross-platform support
+- `WindowsFileService` contains all platform-specific code
 
 ### 2. Authentication Scope
 - Current implementation provides all-or-nothing access
@@ -469,10 +556,12 @@ server {
 - Not optimized for thousands of concurrent users
 - Thread pool limits concurrent operations
 - Memory usage scales with open files and operation history
+- OperationQueue designed for async boundary, not high-throughput parallelism
 
 ## Future Improvements
 
 ### 1. Architectural
+- Linux/Mac support via `LinuxFileService` implementing `FileService` ABC
 - Complete VFS abstraction layer for cross-platform support
 - Plugin system for extensibility
 - Event-driven architecture with WebSockets

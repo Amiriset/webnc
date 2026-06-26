@@ -12,8 +12,13 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Suppress noisy asyncio proactor warnings on Windows client disconnect
-warnings.filterwarnings("ignore", message=".*_ProactorBasePipeTransport.*")
+from webnc.version import VERSION
+
+# Windows: ProactorEventLoop is required for subprocess (asyncio.create_subprocess_shell),
+# but uvicorn can crash with ConnectionResetError when a client disconnects abruptly.
+if sys.platform == "win32":
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 # Ensure the project root is on sys.path so that `webnc` is importable
 # when running `python webnc_server.py` or `python webnc/main.py`.
@@ -40,10 +45,12 @@ from webnc.api.config_api import router as config_router
 from webnc.api.exec import router as exec_router
 from webnc.config_manager import ConfigManager
 from webnc.operations.queue import OperationQueue
+from webnc.services.windows_service import WindowsFileService
 
 # ── Globals ────────────────────────────────────────────────────────────────
 operation_queue = OperationQueue(max_workers=4)
 config_manager = ConfigManager()
+file_service = WindowsFileService()
 
 
 def create_app():
@@ -196,7 +203,7 @@ def main():
         uvicorn.config.create_ssl_context = _hardened_ssl_context
 
     scheme = "https" if ssl_kw else "http"
-    print("WebNC API starting...")
+    print(f"WebNC v{VERSION} starting...")
     print(f"  URL: {scheme}://{args.host}:{args.port}/")
     if ssl_kw:
         print(
@@ -242,6 +249,10 @@ def main():
             "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
         },
     }
+
+    # Suppress asyncio exception handler noise (ConnectionResetError on client disconnect)
+    import logging
+    logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
     uvicorn.run(
         app,

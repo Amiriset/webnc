@@ -22,10 +22,31 @@ OPERATION_DEFAULTS = {
 EXEC_DEFAULTS = {
     "allowed_commands": [],
     "denied_commands": ["format", "diskpart", "shutdown", "reg", "reg.exe"],
+    "timeout": 30,
 }
 
 EDITOR_DEFAULTS = {
     "max_edit_size": 1048576,
+}
+
+ASSOCIATIONS_DEFAULTS = {
+    ".py": "edit",
+    ".js": "edit",
+    ".ts": "edit",
+    ".html": "edit",
+    ".css": "edit",
+    ".json": "edit",
+    ".md": "view",
+    ".txt": "view",
+    ".zip": "archive",
+    ".tar": "archive",
+    ".gz": "archive",
+    ".tgz": "archive",
+    ".7z": "archive",
+    ".rar": "archive",
+    ".jpg": "preview",
+    ".png": "preview",
+    ".gif": "preview",
 }
 
 KEYBINDING_DEFAULTS = {
@@ -86,6 +107,9 @@ class ConfigManager:
         editor_cfg = self._data.setdefault("editor", {})
         for k, v in EDITOR_DEFAULTS.items():
             editor_cfg.setdefault(k, v)
+        assoc = self._data.setdefault("associations", {})
+        for k, v in ASSOCIATIONS_DEFAULTS.items():
+            assoc.setdefault(k, v)
         self.save()
 
     def save(self) -> None:
@@ -125,6 +149,14 @@ class ConfigManager:
         with self._lock:
             return list(self._data.get("exec", {}).get("denied_commands", []))
 
+    def get_exec_timeout(self) -> int:
+        with self._lock:
+            return self._data.get("exec", {}).get("timeout", 30)
+
     def get_max_edit_size(self) -> int:
         with self._lock:
             return self._data.get("editor", {}).get("max_edit_size", 1048576)
+
+    def get_associations(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._data.get("associations", {}))

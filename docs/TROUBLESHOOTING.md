@@ -130,8 +130,17 @@ This weakens transport security. Only do this in isolated/trusted networks.
 - Cleanup runs every 60 seconds (`CLEANUP_INTERVAL`)
 - Graceful shutdown drains the queue on server exit
 
-### 6. PowerShell 5.1 Certificate Validation
-**Problem**: `manage_server.ps1` health checks failed on PowerShell 5.1 due to self-signed certificate rejection.
+### 6. Ctrl+O Not Working in Browser
+**Symptom**: Pressing Ctrl+O opens browser's "Open File" dialog instead of toggling panels.
+
+**Cause**: Ctrl+O is a browser-level shortcut in Chrome/Edge that cannot be reliably intercepted by web applications.
+
+**Workaround**: Use the menu items (Left/Right → On/Off, Commands → Panels On/Off) instead. The capture-phase listener is best-effort and may work in some browsers.
+
+### 7. PowerShell 5.1 Certificate Validation
+**Symptom**: `manage_server.ps1` health checks fail on PowerShell 5.1 with certificate validation errors.
+
+**Cause**: PowerShell 5.1 does not have `-SkipCertificateCheck` parameter and rejects self-signed certificates by default.
 
 **Resolution**: Script temporarily sets `ServerCertificateValidationCallback` to accept all certificates during health checks, then restores the original callback:
 ```powershell
@@ -140,12 +149,33 @@ This weakens transport security. Only do this in isolated/trusted networks.
 [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $oldCb
 ```
 
-### 7. Proactor Event Loop Warning Noise
+### 8. Proactor Event Loop Warning Noise
 **Problem**: Windows asyncio proactor transport warnings filled logs on client disconnect.
 
 **Resolution**: Warning filter added at startup:
 ```python
 warnings.filterwarnings("ignore", message=".*_ProactorBasePipeTransport.*")
+```
+
+### 9. Exec Endpoint NotImplementedError
+**Symptom**: `POST /api/exec` returns HTTP 500 with `NotImplementedError: ... SelectorEventLoop cannot subprocess`.
+
+**Cause**: `SelectorEventLoop` (default on Windows) cannot create subprocesses. `asyncio.create_subprocess_shell` requires `ProactorEventLoop`.
+
+**Resolution**: WebNC sets `WindowsProactorEventLoopPolicy` at startup. If you see this error, ensure you're running through `webnc_server.py` (which sets the policy) rather than `uvicorn` directly.
+
+### 10. ConnectionResetError Crashes
+**Symptom**: Server crashes when a client disconnects abruptly during a request.
+
+**Cause**: Windows `ProactorEventLoop` raises `ConnectionResetError` when a client disconnects before the response is sent. Unhandled, this crashes the event loop.
+
+**Resolution**: WebNC monkey-patches `new_event_loop` to install a loop exception handler that catches `ConnectionResetError` and logs it at DEBUG level instead of crashing:
+```python
+loop.set_exception_handler(lambda l, ctx: (
+    logger.debug("Client disconnected (ConnectionResetError, ignored)")
+    if isinstance(ctx.get("exception"), ConnectionResetError)
+    else l.default_exception_handler(ctx)
+))
 ```
 
 ### 8. File Upload Size Limit
@@ -157,7 +187,18 @@ if len(content) > MAX_UPLOAD_SIZE:  # 100 * 1024 * 1024
     raise HTTPException(status_code=413, detail="File too large")
 ```
 
-### 9. Editor Size Limit
+### 9. Symlink Creation Fails
+**Symptom**: `POST /api/link` returns error "Cannot create link: enable Developer Mode".
+
+**Cause**: Windows requires Developer Mode enabled for `os.symlink()` to work without elevation.
+
+**Workarounds**:
+- Enable Developer Mode: Settings → Update & Security → For developers → Developer Mode
+- WebNC automatically falls back to `mklink /J` (junctions) for directories — this works without Developer Mode
+- For files, hardlinks (`mklink /H`) work without Developer Mode but require same drive
+- Cross-drive hardlinks are not supported by Windows
+
+### 10. Editor Size Limit
 **Problem**: Editing very large files could cause browser performance issues.
 
 **Resolution**: Configurable `max_edit_size` (default 1 MB) enforced in `/api/view` endpoint:

@@ -15,11 +15,14 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
 - **Transmission**: Never transmitted; only SHA-256 hashes of nonce+timestamp+secret are sent
 - **Lifetime**: Valid for 5 minutes from generation (timestamp window)
 - **Regeneration**: New token created on each server startup
+- **Console Output**: Token printed to `stderr` only (not logger) to prevent token leakage to log files
+- **Service Layer**: `FileService` ABC enforces consistent token handling across platforms
 
 ### Configuration Data
 - **Operation Settings** (`config.json`):
   - Stored in project root: `config/config.json`
   - Contains timeout/retry settings for 8 operation types
+  - Contains keybindings, exec rules, editor limits, extension associations
   - No personal or sensitive data stored
   - Thread-safe atomic writes via `.tmp` + replace
 - **UI Preferences** (localStorage):
@@ -27,10 +30,13 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - Contains view mode, sort preferences, hidden files setting, etc.
   - No personal or sensitive data stored
   - Cleared when browser data is cleared
+- **Service Layer**: `FileService` ABC enforces consistent configuration handling across platforms
 
 ### Log Data
-- **Log File**: `logs/nc_server.log` (rotating: 5 MB × 3 backups)
+- **Log File**: `logs/webnc_server.log` (rotating: 5 MB × 3 backups)
 - **Log Format**: `%(asctime)s | %(levelname)-8s | %(message)s`
+- **Log Configuration**: Custom `log_config` dict passed to `uvicorn.run()` to ensure consistent format across all handlers (uvicorn access, error, and default logs)
+- **Service Layer**: Platform-specific operations logged by `WindowsFileService`
 - **Logged Information**:
   - Server start/stop events
   - All API calls (endpoint, HTTP method, status code)
@@ -51,10 +57,12 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - No persistent audit log of file operations currently implemented
   - Operations are performed in real-time with no intermediate storage
   - Error conditions are logged but do not include file contents
+  - Service layer enforces business logic rules
 - **Operation Queue**:
   - In-memory only during operation execution
   - No persistence of operation history or results
   - Completed operations are discarded from memory
+  - Designed as async operation boundary, not parallel execution engine
 - **Cache**:
   - No intentional caching of filesystem data
   - Frontend may temporarily cache view state for responsiveness
@@ -75,6 +83,7 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - Validity period: 10 years
   - Auto-renewed on deletion of `.crt`/`.key` files
   - No dependence on `openssl` CLI (pure Python implementation)
+- **Service Layer**: Platform-specific TLS handling in `WindowsFileService`
 
 ### Session Authentication
 - **Mechanism**: Zero-knowledge SHA-256 handshake
@@ -88,6 +97,7 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - Constant-time comparison: `secrets.compare_digest()` prevents timing attacks
   - Secret entropy: 256 bits (`secrets.token_hex(32)`)
 - **Storage**: Secret held only in server RAM; client stores token in `sessionStorage`
+- **Service Layer**: `FileService` ABC enforces consistent authentication across platforms
 
 ### Authorization Framework
 - **Provider Interface**: `AuthProvider(ABC)` with `authenticate()` and `authorize()` methods
@@ -99,6 +109,7 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - `/api/drives`: Drive listing (non-sensitive)
   - `/api/disk`: Disk usage (non-sensitive)
 - **Module Registry**: `app.state.modules` enables feature flags per user/role (planned for RBAC)
+- **Service Layer**: `FileService` ABC enforces consistent interface across platforms
 
 ### Filesystem Access
 - **Path Validation**: 
@@ -106,6 +117,14 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - Protection against directory traversal attacks
   - URL format (`/C/Users/...`) used consistently in API
   - Conversion to Windows paths only at filesystem boundary
+- **Symlink Handling**:
+  - `FileService.create_link()` creates symlinks, junctions, or hardlinks
+  - Junctions and hardlinks created without Developer Mode via `mklink` fallback
+  - Cross-drive hardlinks rejected (Windows limitation)
+- **Service Layer**:
+  - `FileService` ABC enforces consistent interface
+  - `WindowsFileService` contains all platform-specific code
+  - Future `LinuxFileService` would use `pwd`/`grp`/`os.stat`
 - **Error Handling**:
   - `PermissionError`: Logs warning but continues operation (skips inaccessible items)
   - No elevation of privileges or bypass of OS permissions
@@ -173,6 +192,7 @@ While WebNC is not designed as a data processor/controller for personal data:
   - Certificate generation/renewal
   - Health check results
   - Operation queue status
+  - Service layer platform-specific operations
 - **Error Handling**:
   - All exception paths log at appropriate level (WARNING/ERROR)
   - No bare `except: pass` - all silent exception blocks upgraded to logging
@@ -200,6 +220,7 @@ While WebNC is not designed as a SaaS service processing personal data on behalf
 - **Integrity and Confidentiality**: Aligns with Article 5(1)(f) - TLS encryption, secure authentication
 - **Rights of Data Subject**: Users maintain direct control over their data through filesystem access
 - **Security of Processing**: Aligns with Article 32 - encryption, confidentiality, resilience
+- **Service Layer**: `FileService` ABC enables consistent data handling across platforms
 
 ### California Consumer Privacy Act (CCPA) Considerations
 - **Right to Know**: Users can see what data is collected via logs and documentation
@@ -235,18 +256,21 @@ While WebNC is not designed as a SaaS service processing personal data on behalf
 - **Security Updates**: Recommended to regularly update dependencies
 - **Known Vulnerabilities**: No known vulnerabilities in current dependency tree at time of release
 - **Verification**: Dependencies obtained from official PyPI repository
+- **Service Layer**: `FileService` ABC reduces dependency on platform-specific libraries
 
 ### Build and Distribution
 - **No Build Process**: Pure Python + static frontend (no compilation step)
 - **Source Distribution**: Available as source code only
 - **Reproducibility**: Exact versions specified in requirements.txt
 - **Integrity**: No binary distribution - users build from source or run directly
+- **Service Layer**: `FileService` ABC enables cross-platform distribution
 
 ### Development Practices
 - **Dependency Scanning**: Recommended to use tools like `pip-audit` or `safety`
 - **Version Control**: All changes tracked via Git
 - **Code Review**: Changes should be reviewed before merging
 - **Security Testing**: Regular security review recommended
+- **Service Layer**: `FileService` ABC enables consistent testing across platforms
 
 ## Compliance Declarations
 
@@ -261,6 +285,7 @@ While WebNC is not designed as a SaaS service processing personal data on behalf
 8. **Avoids Known Vulnerabilities**: No usage of weak cryptography or disabled security features
 9. **Provides Clear Documentation**: Security model and limitations clearly disclosed
 10. **Designed for Local Use**: Assumes trusted administrator/user context
+11. **Service Layer**: `FileService` ABC enables cross-platform support with consistent interface
 
 ### What WebNC Does Not Do
 1. **Does Not Persist Authentication Tokens**: Tokens exist only in RAM and sessionStorage
@@ -283,12 +308,14 @@ For organizations deploying WebNC in regulated environments:
 - **Firewall**: Restrict access to trusted IP ranges only
 - **Intrusion Detection**: Monitor for anomalous access patterns
 - **Proxy**: Consider reverse proxy with additional authentication (if needed)
+- **Service Layer**: `FileService` ABC enables consistent network security across platforms
 
 ### Host Controls
 - **Least Privilege**: Run service account with minimal required permissions
 - **Patch Management**: Keep OS and dependencies updated
 - **Antivirus**: Exclude WebNC directories if necessary for performance (with risk acceptance)
 - **Monitoring**: Track service health and resource utilization
+- **Service Layer**: `FileService` ABC enables consistent host security across platforms
 
 ### Administrative Controls
 - **User Training**: Educate users on proper use and data handling
@@ -296,6 +323,7 @@ For organizations deploying WebNC in regulated environments:
 - **Monitoring**: Regular review of logs for anomalous activity
 - **Incident Response**: Have plan for security incidents involving WebNC
 - **Backup**: Backup configuration and critical data separately
+- **Service Layer**: `FileService` ABC enables consistent administrative controls across platforms
 
 ### Technical Controls
 - **Certificate Management**: Replace auto-generated cert with CA-signed certificate for production
@@ -303,6 +331,7 @@ For organizations deploying WebNC in regulated environments:
 - **Audit Enhancement**: Plan to implement persistent audit log for file operations (future feature)
 - **Data Loss Prevention**: Consider DLP rules for sensitive data exfiltration
 - **Encryption at Rest**: Use BitLocker or similar for disk encryption if required
+- **Service Layer**: `FileService` ABC enables consistent technical controls across platforms
 
 ## Limitations and Exceptions
 
@@ -313,6 +342,7 @@ For organizations deploying WebNC in regulated environments:
 4. **Windows-centric**: Current implementation relies on Windows-specific APIs
 5. **No DLP Integration**: No built-in data loss prevention controls
 6. **Session Sharing**: Tokens not designed for sharing between users or sessions
+7. **Service Layer**: Only `WindowsFileService` implemented; `LinuxFileService` planned
 
 ### Exceptions and Mitigations
 - **Self-signed Certificates**: 
@@ -327,10 +357,13 @@ For organizations deploying WebNC in regulated environments:
 - **No Operation Cancelling**:
   - Exception: Currently no way to cancel running operations
   - Mitigation: Use timeouts appropriately; planned feature for future releases
+- **Service Layer**:
+  - Exception: Only `WindowsFileService` implemented
+  - Mitigation: `FileService` ABC enables future `LinuxFileService` implementation
 
 ## Version and Applicability
-- **Document Version**: 1.0.0
-- **Applicable Version**: WebNC 1.0.0 (as documented in History.md)
+- **Document Version**: 1.1.0
+- **Applicable Version**: WebNC 0.13.0.00017 (as documented in History.md)
 - **Review Frequency**: Should be reviewed with each major release
 - **Last Updated**: Corresponds to latest commit in repository
 - **Feedback**: Report inaccuracies or concerns via project issue tracker
@@ -338,6 +371,6 @@ For organizations deploying WebNC in regulated environments:
 ## Conclusion
 WebNC implements a robust security model appropriate for its intended use as a local-first, keyboard-driven file manager for Windows administrators. While not designed as a compliant system for handling regulated data in multi-tenant environments, it provides strong foundational security controls that can be complemented with organizational policies and technical controls to meet various compliance requirements.
 
-The three-layer security approach (TLS, session auth, provider interface) provides defense in depth, and the minimization of persistent sensitive data reduces the attack surface. Organizations should evaluate WebNC against their specific compliance requirements and implement additional controls as necessary.
+The three-layer security approach (TLS, session auth, provider interface) provides defense in depth, and the minimization of persistent sensitive data reduces the attack surface. The service layer abstraction (`FileService` ABC) enables future cross-platform support while maintaining consistent security controls. Organizations should evaluate WebNC against their specific compliance requirements and implement additional controls as necessary.
 
 For the most current information, please refer to the `History.md` file which contains detailed development progress including any security-related changes.

@@ -11,6 +11,7 @@ This guide provides comprehensive instructions for using WebNC, a local-first, k
    pip install -r requirements.txt
    pip install cryptography   # for RSA-4096 certificate generation
    ```
+3. Service layer (`FileService` ABC) enables cross-platform support
 
 ### First Launch
 1. Start the server:
@@ -27,6 +28,7 @@ This guide provides comprehensive instructions for using WebNC, a local-first, k
 3. Accept the self-signed certificate warning (click "Advanced" → "Proceed to localhost")
 4. Copy the session token from the server console output
 5. Paste the token when prompted, or append it to the URL as `#token=<TOKEN>`
+6. Service layer (`FileService` ABC) enables cross-platform support
 
 ## User Interface Overview
 
@@ -77,8 +79,18 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 
 ### Command Line
 - Located at bottom center
-- Accessible via `:` key or clicking
-- Supports direct command entry (planned feature: `/api/exec` endpoint)
+- Accessible via clicking on the command input area
+- Type command and press Enter to execute via `POST /api/exec`
+- Command output appears in scrollable terminal area below panels
+- Command history: ArrowUp/Down to navigate previous commands (max 100, persisted in localStorage)
+- When both panels hidden (Ctrl+O), terminal fills the full space
+
+### Active Target
+- `activeTarget` state controls which area receives keyboard input: `"panels"` or `"terminal"`
+- Tab cycles: left panel → right panel → terminal → left panel
+- Ctrl+O hides panels → auto-switches to terminal; shows panels → switches back
+- Click on panels area → switches to panels; click on terminal area → switches to terminal
+- Visual indicator: terminal border turns cyan when active
 
 ### Status Bar
 - Shows current disk usage for active panel's drive
@@ -94,7 +106,7 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 | Home / End | Move to first/last item |
 | PgUp / PgDn | Page up/down |
 | Enter | Open directory or launch file |
-| Tab | Switch active panel |
+| Tab | Switch active panel (left → right → terminal → left) |
 | Alt+F1 | Focus left panel drive selector |
 | Alt+F2 | Focus right panel drive selector |
 
@@ -127,6 +139,7 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 | Ctrl+O | Toggle panels visibility (menu always works) |
 | Ctrl+R | Refresh current panel (via menu) |
 | Ctrl+U | Swap panels (via menu) |
+| Commands → NDC tree | Full-screen directory tree (arrow-key nav, Enter expand→select) |
 
 ### Dialog Navigation
 | Shortcut | Action |
@@ -135,6 +148,7 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 | ↑ / ↓ | Navigate lists (where applicable) |
 | Enter | Activate focused button or open selected item |
 | Escape | Close dialog or cancel operation |
+| Commands → NDC tree | Full-screen directory tree dialog |
 
 ## Using the Interface
 
@@ -306,7 +320,7 @@ View contents of archive files:
 #### File Viewing and Editing
 - **View (F3)**: Text files under 64KB shown in read-only viewer
 - **Info (F4 on directory)**: Shows directory statistics and contents
-- **Edit (F4 on file)**: Opens EditorDialog for text files <64KB
+- **Edit (F4 on file)**: Opens EditorDialog for text files < `max_edit_size` (default 1 MB, configurable via `editor.max_edit_size` in config.json)
   - Edit content in textarea
   - Ctrl+S indicates save shortcut
   - Save/Cancel buttons
@@ -388,10 +402,12 @@ Stored in `config/config.json`:
 - Keyboard shortcuts (under `keybindings` key)
 - Command execution rules (under `exec` key)
 - Editor size limits (under `editor` key)
+- Extension associations (under `associations` key)
 - Modified via Commands → Timeouts... dialog or PUT /api/config API
 - Thread-safe atomic updates
 - Survives server restarts
 - Backed up automatically via .tmp + replace
+- Service layer (`FileService` ABC) enables consistent configuration across platforms
 
 ### Session Data
 - Authentication token: stored in sessionStorage (cleared on tab close)
@@ -406,6 +422,9 @@ Stored in `config/config.json`:
 - Use Brief view mode for rapid scanning of many files
 - Use sorting to group similar files (e.g., by extension)
 - Use filtering to focus on specific file types
+- Use `.` entry to jump to drive root
+- Use `..` entry to navigate to parent directory
+- Use NDC Tree dialog (Commands → NDC tree) for full-screen directory browsing
 
 ### File Operations
 - Always verify source and destination before copy/move
@@ -413,18 +432,23 @@ Stored in `config/config.json`:
 - Monitor long-running operations via status area
 - Remember delete operations send items to permanent deletion (no recycle bin)
 - Use rename (F6) for both moving and renaming within same directory
+- Service layer (`FileService` ABC) ensures consistent behavior across platforms
 
 ### Search and Comparison
 - Use glob patterns (`*.txt`) for simple searches, regex for complex
 - Limit search results to avoid excessive memory usage
 - Use "By content" option in comparison/sync only when necessary (slower)
 - Clear filters when no longer needed to avoid confusion
+- Use NDC Tree dialog (Commands → NDC tree) for full-screen directory browsing
+- Service layer (`FileService` ABC) ensures consistent search behavior across platforms
 
 ### Configuration
 - Adjust timeouts based on your hardware and typical file sizes
 - Lower retry counts for unstable storage (network drives)
 - Enable hidden files only when needed (slight performance impact)
 - Set confirmations based on your risk tolerance
+- Configure extension associations for default actions
+- Service layer (`FileService` ABC) ensures consistent configuration across platforms
 
 ### Security
 - Remember this tool has full filesystem access with no sandbox
@@ -432,6 +456,7 @@ Stored in `config/config.json`:
 - The self-signed certificate is acceptable for local use
 - For production deployment, consider using a certificate from internal CA
 - Authentication token is ephemeral and changes on each server start
+- Service layer (`FileService` ABC) enforces consistent security across platforms
 
 ### Performance
 - Close unused browser tabs to conserve resources
@@ -439,6 +464,7 @@ Stored in `config/config.json`:
 - Archive listing performance depends on archive size and compression
 - Sync operations benefit from SSD storage
 - Consider excluding antivirus scanning of WebNC directories if needed
+- OperationQueue designed as async operation boundary, not high-throughput parallelism
 
 ## Accessibility
 
@@ -448,6 +474,7 @@ Stored in `config/config.json`:
 - Clear focus indicators
 - Escape consistently closes dialogs
 - Enter activates default actions
+- NDC Tree dialog supports full keyboard navigation
 
 ### Visual Design
 - High contrast color scheme (cyan/yellow on blue background)
@@ -455,12 +482,14 @@ Stored in `config/config.json`:
 - Scalable font sizes via configuration
 - Minimal reliance on color alone for information
 - Consistent spacing and layout
+- NDC Tree dialog provides full-screen directory browsing
 
 ### Screen Reader Support
 - ARIA labels planned for future improvement
 - Semantic table usage for file listings
 - Dialogs follow accessibility patterns
 - Live regions planned for operation status updates
+- NDC Tree dialog provides accessible directory navigation
 
 ## Customization and Extensions
 
@@ -473,11 +502,12 @@ Stored in `config/config.json`:
 ### Future Extension Points
 WebNC is designed for extensibility:
 1. **Authentication Providers**: Implement `AuthProvider` interface for AD/LDAP/JWT
-2. **Virtual File System**: Extend `webnc/vfs/` for SFTP/FTP/cloud storage
-3. **Operations**: Subclass `AbstractOperation` for new background tasks
-4. **Frontend Components**: Add new dialogs or view modes in React
-5. **Menu Items**: Extend menu system in `app.js`
-6. **Configuration**: Add new operation types to `ConfigManager.OPERATION_DEFAULTS`
+2. **Platform Services**: Implement `FileService` ABC for Linux/Mac support
+3. **Virtual File System**: Extend `webnc/vfs/` for SFTP/FTP/cloud storage
+4. **Operations**: Subclass `AbstractOperation` for new background tasks
+5. **Frontend Components**: Add new dialogs or view modes in React
+6. **Menu Items**: Extend menu system in `app.js`
+7. **Configuration**: Add new operation types to `ConfigManager.OPERATION_DEFAULTS`
 
 For detailed extension guidelines, see `docs/CODEBASE_DOCUMENTATION.md`.
 
@@ -502,6 +532,24 @@ For detailed extension guidelines, see `docs/CODEBASE_DOCUMENTATION.md`.
 
 For more detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
 
+## Symbolic Links
+
+WebNC supports creating symbolic links, junctions, and hardlinks:
+
+### Creating Links
+1. Navigate to target file/directory
+2. Use Commands menu → Create Link (or API `POST /api/link`)
+3. Specify target and link path
+4. WebNC automatically selects best link type:
+   - **Symlink**: `os.symlink()` (requires Developer Mode on Windows)
+   - **Junction**: `mklink /J` (directories, fallback when symlink fails)
+   - **Hardlink**: `mklink /H` (files, same drive only)
+
+### Notes
+- Directories: junction preferred (no Developer Mode needed)
+- Files: hardlink requires same drive; cross-drive returns error
+- Enable Developer Mode for symlinks: Settings → Update & Security → For developers
+
 ## Safety and Security Notices
 
 > ⚠️ **Important Security Notice**: This tool has full filesystem access with no sandbox. All three protection levels (TLS, session auth, provider interface) are enabled by default for localhost. Do not expose to untrusted networks without additional controls.
@@ -518,12 +566,14 @@ For more detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
 - TLS 1.3 encryption enabled by default
 - Session tokens are ephemeral and never transmitted
 - Replay protection and timestamp validation prevent session hijacking
+- Service layer enforces permission checks at business logic level
 
 ### Compliance
 - No persistent logs of file operations (planned audit log feature)
 - Configuration changes logged at INFO level
 - Authentication events logged (success/failure)
 - Error conditions logged with appropriate detail
+- Service layer logs platform-specific operations
 - See `docs/COMPLIANCE.md` for details
 
 ## Getting Help
@@ -537,15 +587,16 @@ For more detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
 - CLI tools: `docs/CLI-TOOLS.md`
 - Compliance: `docs/COMPLIANCE.md`
 - Troubleshooting: `docs/TROUBLESHOOTING.md`
-- Development history: `History.md`
+- Development history: `history/` folder
 
 ### Community
 - GitHub Issues: https://github.com/anomalyco/opencode/issues
 - Discussions: [Link if available]
+- Development history: `history/` folder
 
 ### Support
 For issues with the WebNC application itself:
-1. Check `History.md` for similar resolved problems
+1. Check `history/` folder for similar resolved problems
 2. Review `docs/TROUBLESHOOTING.md` for known issues
 3. Examine server logs in `logs\nc_server.log`
 4. Check browser console for frontend errors

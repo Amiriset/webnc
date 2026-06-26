@@ -4,6 +4,7 @@ logs/*
 server.pid
 webnc_server.crt
 webnc_server.key
+client/template.html
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

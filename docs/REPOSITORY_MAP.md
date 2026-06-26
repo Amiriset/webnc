@@ -21,13 +21,16 @@ This document provides a complete mapping of folders and files in the WebNC repo
 | `bin/` | Management scripts (PowerShell and batch files) |
 | `config/` | Configuration files (auto-generated config.json) |
 | `logs/` | Log files (rotating log output) |
+| `history/` | Development history summaries (HISTORY.00001.md — HISTORY.00015.md) |
 | `__doc__/` | Legacy documentation directory (to be migrated) |
 | `__pycache__/` | Python compiled bytecode directories |
 | `webnc_server.py` | Main entry point for the application |
 | `run.bat` | CMD wrapper script for starting/stopping the server |
 | `manage_server.ps1` | PowerShell script for server management |
 | `requirements.txt` | Python package dependencies |
+| `version.txt` | Application version string (read by `webnc/version.py`) |
 | `README.md` | Project overview and quick start guide |
+| `CHANGELOG.md` | Version history and release notes |
 | `History.md` | Detailed development changelog |
 | `LICENSE` | Software license information |
 | `.gitignore` | Git exclusion rules |
@@ -43,6 +46,7 @@ This document provides a complete mapping of folders and files in the WebNC repo
 | `webnc/config_manager.py` | Thread-safe JSON configuration management |
 | `webnc/logging_config.py` | Logging setup with rotating file handler |
 | `webnc/main.py` | FastAPI application factory and setup |
+| `webnc/version.py` | Version reader (reads `version.txt` from project root) |
 | `webnc/api/` | RESTful API endpoint implementations |
 | `webnc/operations/` | Background operation classes and queue management |
 | `webnc/models/` | Pydantic data models for request/validation |
@@ -75,8 +79,8 @@ This document provides a complete mapping of folders and files in the WebNC repo
 | `webnc/operations/__pycache__/` | Compiled bytecode |
 | `webnc/operations/base.py` | AbstractOperation base class with retry/timeout logic |
 | `webnc/operations/compare.py` | CompareOperation implementation |
-| `webnc/operations/files.py` | File operation implementations (Copy, Move, Delete, etc.) |
-| `webnc/operations/queue.py` | OperationQueue managing thread pool execution |
+| `webnc/operations/files.py` | File operation implementations (Copy, Move, Delete, Link, Search, etc.) |
+| `webnc/operations/queue.py` | OperationQueue — async operation boundary for decoupling FS ops from HTTP |
 | `webnc/operations/syncop.py` | SyncPlanOperation and SyncExecuteOperation implementations |
 | `webnc/operations/system.py` | System operation classes (if any) |
 | `webnc/operations/archive.py` | ArchiveListOperation implementation |
@@ -187,7 +191,27 @@ This document provides a complete mapping of folders and files in the WebNC repo
 
 | File/Folder | Description |
 |-------------|-------------|
-| `logs/nc_server.log` | Rotating log file (5 MB × 3 backups) |
+| `logs/webnc_server.log` | Rotating log file (5 MB × 3 backups) |
+
+## Development History (history/)
+
+| File/Folder | Description |
+|-------------|-------------|
+| `history/HISTORY.00001.md` | Initial backend + frontend prototype |
+| `history/HISTORY.00002.md` | Paren balance fix, panel table rewrite, spacing |
+| `history/HISTORY.00003.md` | Sort, brief view, menu system, search |
+| `history/HISTORY.00004.md` | Info/tree view, filter, sysinfo, compare |
+| `history/HISTORY.00005.md` | Per-panel On/Off, config dialog, help, archive |
+| `history/HISTORY.00006.md` | SSL support, manage_server.ps1, run.bat |
+| `history/HISTORY.00007.md` | TLS 1.3, auth provider, directory sync |
+| `history/HISTORY.00008.md` | SyncDialog TC-style redesign |
+| `history/HISTORY.00009.md` | ESM modular frontend, static.py rewrite |
+| `history/HISTORY.00010.md` | FastAPI package structure, event loop fix |
+| `history/HISTORY.00011.md` | Operation retry/timeout config, TimeoutsDialog |
+| `history/HISTORY.00012.md` | CSS refactoring, editor, find file panel |
+| `history/HISTORY.00013.md` | Fullscreen, keyboard config, command exec |
+| `history/HISTORY.00014.md` | Terminal overlay, activeTarget, token stderr |
+| `history/HISTORY.00015.md` | Project restructuring, rebranding to WebNC |
 
 ## Legacy Documentation (__doc__/)
 

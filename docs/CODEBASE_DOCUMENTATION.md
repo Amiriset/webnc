@@ -45,6 +45,9 @@ The main application entry point that:
 - Initializes the configuration manager
 - Configures exception handlers
 - Sets up startup/shutdown events
+- Configures Windows ProactorEventLoop for subprocess support
+- Installs ConnectionResetError exception handler on event loop
+- Passes custom `log_config` to `uvicorn.run()` for consistent logging
 
 Key components:
 ```python
@@ -105,15 +108,18 @@ Handles filesystem operations:
 - `/api/disk`: Disk usage information
 - `/api/drives`: Available drives with labels
 - `/api/tree`: Lazy-loaded directory tree
-- `/api/search`: File search by glob/regex
-- `/api/copy`, `/api/move`, etc.: Async file operations
+- `/api/search`: File search by glob/regex (async)
+- `/api/copy`: Copy file/dir (async with retry)
+- `/api/move`: Move file/dir (async with retry)
+- `/api/rename`: Rename file/dir (synchronous)
+- `/api/mkdir`: Create directory (synchronous)
+- `/api/delete`: Delete file/dir (synchronous)
+- `/api/batch-delete`: Delete multiple items (async with retry)
 
-Each endpoint follows this pattern:
-1. Validate input parameters (Pydantic models)
-2. Create operation instance
-3. Queue operation via OperationQueue (async) or run_sync (sync)
-4. Return result or `{operation_id, status: "QUEUED", poll: config}`
-5. Frontend polls `/api/operation/{id}` for async status
+Sync vs Async pattern:
+- Synchronous endpoints use `queue.run_sync(op, timeout=10.0)` and return `OperationResult` directly
+- Asynchronous endpoints use `queue.add_operation(op)` and return `{operation_id, status: "QUEUED", poll: config}`
+- Frontend polls `GET /api/operation/{id}` for async operation status
 
 #### compare.py
 Directory comparison functionality:
@@ -139,8 +145,16 @@ Archive handling:
 #### system.py
 System information endpoints:
 - `/api/sysinfo`: OS, hostname, CPU, RAM, uptime, drives
-- `/api/health`: Health check (no auth required)
+- `/api/health`: Health check (no auth required) — returns `{status, state, version}`
 - Uses `platform`, `psutil`, and Win32 APIs where applicable
+
+#### exec.py
+Command execution endpoint:
+- `/api/exec`: Execute shell command on server (synchronous, 30s timeout)
+- `_decode()`: Fallback chain for stdout/stderr: UTF-8 → CP866 (OEM) → CP1251 (ANSI) → CP437 → Latin-1
+- Command allow/deny checks via `config.json` → `exec.allowed_commands` / `exec.denied_commands`
+- Uses `asyncio.create_subprocess_shell()` with 30s timeout
+- Default denied commands: `format`, `diskpart`, `shutdown`, `reg.exe`
 
 #### drives.py
 Drive information:
@@ -168,7 +182,9 @@ Frontend static file serving:
 #### base.py
 Abstract base class for all operations:
 - `AbstractOperation`: Core operation functionality
-- Thread-safe execution with retry logic
+- Async operation boundary (not parallel execution engine)
+- Returns `operation_id` immediately, frontend polls for status
+- Prevents UI/API blocking during slow FS operations
 - Configurable timeouts and poll intervals
 - Smart retry classification (`should_retry()`)
 - Progress tracking and result handling
@@ -186,15 +202,16 @@ File operation implementations:
 - `WriteOperation`: File creation/overwrite (for editor)
 - `DownloadOperation`: File download preparation
 - `UploadOperation`: File upload with size validation
-- `CopyOperation`: shutil.copy2 with metadata preservation
+- `CopyOperation`: shutil.copytree/shutil.copy2 with metadata preservation
 - `MoveOperation`: shutil.move with cross-device handling
-- `RenameOperation`: os.rename with path validation
-- `MakeDirectoryOperation`: os.makedirs with parent creation
-- `DeleteOperation`: shutil.rmtree or os.remove
+- `RenameOperation`: Path.rename with validation
+- `MakeDirectoryOperation`: Path.mkdir with parents
+- `LinkOperation`: os.symlink with mklink /J (junction) / /H (hardlink) fallback
+- `DeleteOperation`: shutil.rmtree or Path.unlink
 - `BatchDeleteOperation`: Multiple delete with individual error handling
-- `SearchOperation`: Glob/regex file search
-- `FileInfoOperation`: File/directory metadata
-- `TreeOperation`: Lazy directory tree
+- `SearchOperation`: os.walk with glob/regex pattern matching
+- `FileInfoOperation`: File/directory metadata with Windows owner/permissions
+- `TreeOperation`: Lazy directory tree (immediate subdirs)
 - Each implements `_is_non_retriable()` for specific error types
 
 #### compare.py
@@ -221,8 +238,11 @@ File operation implementations:
 - Returns normalized file information
 
 #### queue.py
-- `OperationQueue`: Thread pool operation manager
-- Configurable worker count (defaults to CPU count)
+- `OperationQueue`: Async operation boundary (not a parallel execution engine)
+- **Purpose**: Decouple long-running filesystem operations from HTTP request handling
+- Returns `operation_id` immediately, frontend polls for status
+- Prevents UI/API blocking during slow FS operations
+- Configurable worker count (defaults to 4)
 - Thread-safe queue operations
 - Operation lifecycle management
 - Graceful shutdown handling
@@ -603,16 +623,26 @@ Legacy style object references:
 - Layer 3 (Provider): Extensible AuthProvider interface for future AD/JWT
 **Benefits**: Strong security, no password storage, replay protection, extensibility
 
-### 2. Async Operation Pattern
+### 2. Async Operation Boundary
 **Problem**: Long-running filesystem operations blocking the event loop
 **Solution**:
-- All blocking calls wrapped in `asyncio.to_thread()`
-- Operation queue with thread pool
-- Frontend polling via operation IDs
+- OperationQueue decouples FS ops from HTTP lifecycle
+- Returns `operation_id` immediately, frontend polls for status
 - Configurable timeouts and retry logic per operation type
 **Benefits**: Non-blocking API, responsive UI, graceful error handling
 
-### 3. Modular Frontend Architecture
+> **OperationQueue is not primarily designed for high-throughput parallel execution.** Its main purpose is to decouple long-running filesystem operations from HTTP request handling and provide a stable polling-based operation lifecycle.
+
+### 3. Service Layer Abstraction
+**Problem**: Platform-specific code mixed with API logic
+**Solution**:
+- `FileService` ABC with 14 abstract methods
+- `WindowsFileService` implementation with all platform-specific code
+- API endpoints call service via `Depends(get_file_service)`
+- Future: `LinuxFileService` for cross-platform support
+**Benefits**: Clean separation, testability, cross-platform potential
+
+### 4. Modular Frontend Architecture
 **Problem**: Monolithic HTML/JS difficult to maintain and extend
 **Solution**:
 - ES modules with explicit imports/exports
@@ -622,7 +652,7 @@ Legacy style object references:
 - Reusable dialog patterns with shared base functionality
 **Benefits**: Maintainability, testability, extensibility, clear separation of concerns
 
-### 4. Configuration Separation
+### 5. Configuration Separation
 **Problem**: UI preferences mixed with operational settings
 **Solution**:
 - UI preferences: stored in localStorage (`nc_config` key)
@@ -631,7 +661,7 @@ Legacy style object references:
 - Runtime updates without restart for operational settings
 **Benefits**: Clear concern separation, appropriate persistence mechanisms, live updates
 
-### 5. Safe Path Handling
+### 6. Safe Path Handling
 **Problem**: Path traversal vulnerabilities and cross-platform inconsistencies
 **Solution**:
 - Virtual File System layer with `safe_path()` function
@@ -641,7 +671,7 @@ Legacy style object references:
 - Drive letter agnostic (works with any drive)
 **Benefits**: Security, consistency, foundation for cross-platform support
 
-### 6. Smart Retry Logic
+### 7. Smart Retry Logic
 **Problem**: Blind retry of all operations causing more harm than good
 **Solution**:
 - Classification of errors as retriable/non-retriable
@@ -651,7 +681,7 @@ Legacy style object references:
 - Configurable retry limits per operation type
 **Benets**: Efficient error handling, prevents endless retry loops, appropriate fault tolerance
 
-### 7. Consistent UI Patterns
+### 8. Consistent UI Patterns
 **Problem**: Inconsistent dialog behavior and appearance
 **Solution**:
 - Shared CSS classes for all dialog components
@@ -662,7 +692,7 @@ Legacy style object references:
 - Visual feedback for states (loading, error, success)
 **Benefits**: Professional appearance, reduced cognitive friction, accessibility
 
-### 8. Extensible Authentication
+### 9. Extensible Authentication
 **Problem**: Need to support multiple authentication mechanisms
 **Solution**:
 - Abstract AuthProvider interface with clear contract
@@ -672,7 +702,7 @@ Legacy style object references:
 - Easy registration via CLI argument
 **Benefits**: Future-proof design, clear integration path, separation of concerns
 
-### 9. Operation Progress Tracking
+### 10. Operation Progress Tracking
 **Problem**: Users need feedback on long-running operations
 **Solution**:
 - Operation IDs returned immediately
@@ -683,7 +713,7 @@ Legacy style object references:
 - Frontend UI components for displaying progress
 **Benefits**: Transparency, user confidence, ability to cancel/monitor
 
-### 10. Atomic Configuration Updates
+### 11. Atomic Configuration Updates
 **Problem**: Race conditions and corruption during config writes
 **Solution**:
 - Write to temporary file (.tmp)
@@ -702,11 +732,10 @@ Client Action → API.js function → HTTP request with auth headers
         ↓
 FastAPI Route → Middleware validation → AuthProvider check
         ↓
-Endpoint handler → Pydantic validation → Operation factory
+Endpoint handler → Pydantic validation → Service method (sync) or Operation (async)
         ↓
-OperationQueue → Thread pool execution → VFS path conversion
-        ↓
-Filesystem operation → Result → Return up the chain
+For sync: FileService → VFS path conversion → Filesystem operation → Result
+For async: OperationQueue → Thread pool → FileService → Result
         ↓
 HTTP response → Client processing → UI update
 ```
@@ -738,13 +767,11 @@ Frontend starts polling GET /api/operation/{id} every interval ms
         ↓
 OperationQueue assigns to worker thread → executes run() method
         ↓
-Should retry? → Check error type against _is_non_retriable()
-        ↓
-Filesystem operation → Success/failure with metadata
+Delegates to FileService → VFS path conversion → Filesystem operation
         ↓
 Operation updates status → Frontend poll reflects change
-        �
-        Final state: COMPLETED/FAILED/CANCELLED → UI shows result
+        ↓
+Final state: COMPLETED/FAILED/CANCELLED → UI shows result
 ```
 
 ### 4. Configuration Update Flow
@@ -780,20 +807,23 @@ Cross-tab communication planned via storage events
 ### Backend Dependencies
 ```
 webnc/
-├── main.py ← config_manager.py, logging_config.py, all api/* routers
+├── main.py ← config_manager.py, logging_config.py, all api/* routers, services/windows_service.py
 ├── api/
-│   ├── files.py ← operations/files.py, config_manager.py, models/files.py
+│   ├── files.py ← services/file_service.py, models/files.py
 │   ├── compare.py ← operations/compare.py, config_manager.py, models/compare.py
 │   ├── sync.py ← operations/syncop.py, config_manager.py, models/sync.py
 │   ├── archive.py ← operations/archive.py, config_manager.py, models/files.py
 │   ├── config_api.py ← config_manager.py
-│   ├── exec.py ← operations/files.py (future)
+│   ├── exec.py ← (standalone, uses asyncio.create_subprocess_shell)
 │   ├── system.py ← (standalone, uses psutil/platform)
 │   ├── drives.py ← (standalone, uses ctypes)
 │   └── operations.py ← operations/base.py, operations/operations.py, config_manager.py
+├── services/
+│   ├── file_service.py ← (ABC interface)
+│   └── windows_service.py ← file_service.py, models/files.py, vfs/paths.py
 ├── operations/
 │   ├── base.py ← config_manager.py
-│   ├── files.py ← config_manager.py
+│   ├── files.py ← services/windows_service.py (delegates to file_service)
 │   ├── compare.py ← config_manager.py
 │   ├── syncop.py ← config_manager.py
 │   └── archive.py ← config_manager.py
@@ -806,7 +836,6 @@ webnc/
 ├── vfs/
 │   └── paths.py ← (standalone)
 ├── models/ ← (Pydantic, standalone)
-├── services/ ← (planned)
 ├── config_manager.py ← (standalone)
 ├── logging_config.py ← (standalone)
 └── config.py ← (constants)
@@ -833,16 +862,17 @@ client/
 ## Extension Guidelines
 
 ### Adding New Backend Operations
-1. Create new class in `webnc/operations/` inheriting from `BaseOperation`
-2. Implement `run()` method with core logic
-3. Override `should_retry()` if needed for specific error handling
-4. Set `op_config_key` class attribute for configuration lookup
-5. Add Pydantic model in `webnc/models/` if needed for request/response
-6. Create API endpoint in appropriate `webnc/api/*` file
-7. Register router in `main.py`
-8. Add defaults to `ConfigManager.OPERATION_DEFAULTS`
-9. Create corresponding frontend API function in `client/js/lib/api.js`
-10. Add UI component/dialog as needed in `client/js/dialogs/`
+1. Add method to `FileService` ABC in `webnc/services/file_service.py`
+2. Implement in `WindowsFileService` in `webnc/services/windows_service.py`
+3. For async operations: create class in `webnc/operations/` inheriting from `BaseOperation`
+4. Implement `run()` method that delegates to `file_service`
+5. Set `op_config_key` class attribute for configuration lookup
+6. Add Pydantic model in `webnc/models/` if needed for request/response
+7. Create API endpoint in appropriate `webnc/api/*` file
+8. Register router in `main.py`
+9. Add defaults to `ConfigManager.OPERATION_DEFAULTS`
+10. Create corresponding frontend API function in `client/js/lib/api.js`
+11. Add UI component/dialog as needed in `client/js/dialogs/`
 
 ### Adding New Frontend Components
 1. Create new ES module in `client/js/dialogs/` or `client/js/components/`
@@ -861,7 +891,7 @@ client/
 3. Implement `authorize(user: UserInfo, permission: str) -> bool`
 4. Add CLI argument handling in `main.py` or `webnc_server.py`
 5. Register provider in auth middleware selection logic
-6. Update documentation in README and docs/SECURITY.md
+6. Update documentation in README and SECURITY.md
 7. Add any required dependencies to requirements.txt
 8. Consider token storage requirements (RAM vs persistent)
 9. Test with various client scenarios (new, expired, invalid tokens)
@@ -875,6 +905,13 @@ client/
 6. Test with various path formats and edge cases
 7. Consider performance implications and caching strategies
 8. Document limitations and requirements
+
+### Adding New Platform Services
+1. Create new class in `webnc/services/` implementing `FileService`
+2. Implement all 14 abstract methods with platform-specific code
+3. Register in `main.py` as `file_service` global
+4. Test all filesystem operations on target platform
+5. Handle platform-specific edge cases (permissions, paths, etc.)
 
 ## Code Quality Standards
 
@@ -969,6 +1006,19 @@ Currently no environment variables used. Configuration via:
 - Log rotation prevents unbounded disk growth
 - Graceful shutdown handling for in-flight operations
 
+### Architecture Layers
+```
+HTTP Request
+    ↓
+FastAPI (API layer)
+    ↓
+FileService (business logic layer)
+    ↓
+VFS (path conversion layer)
+    ↓
+Filesystem (OS layer)
+```
+
 ### Reverse Proxy Configuration
 When deployed behind a reverse proxy (NGINX, Apache, etc.):
 ```nginx
@@ -1018,6 +1068,14 @@ server {
 ### Version-Specific Migrations
 Specific migration paths will be documented in `History.md` and release notes as the project evolves.
 
+#### v0.13.0.00017 — Service Layer Refactoring
+- `webnc/services/file_service.py` — new `FileService` ABC with 14 abstract methods
+- `webnc/services/windows_service.py` — new `WindowsFileService` implementation
+- `webnc/operations/files.py` — trimmed to 4 queued operations (Copy, Move, BatchDelete, Search)
+- `webnc/api/files.py` — sync endpoints now call service directly via `Depends(get_file_service)`
+- `webnc/main.py` — new `file_service = WindowsFileService()` global
+- All business logic moved from operations to service layer
+
 ## Troubleshooting Common Issues
 
 ### Development Issues
@@ -1045,27 +1103,30 @@ Specific migration paths will be documented in `History.md` and release notes as
 - **Clipboard integration**: Planned but not yet implemented
 - **Drag-and-drop**: Planned for future implementation
 - **Terminal emulation**: Ctrl+O terminal planned but not implemented
+- **Service layer**: Only WindowsFileService implemented; LinuxFileService planned
 
 ## Future Directions
 
 ### Planned Architectural Improvements
-1. **Complete VFS Abstraction**: SFTP/FTP, cloud storage, network providers
-2. **WebSocket Implementation**: Real-time updates instead of polling
-3. **Plugin System**: Dynamic loading of extensions and providers
-4. **Event-Driven Architecture**: Better decoupling of components
-5. **Microservice Options**: Potential for service decomposition
-6. **Enhanced Caching**: Intelligent result caching for performance
+1. **Linux/Mac Support**: Implement `LinuxFileService` via `FileService` ABC
+2. **Complete VFS Abstraction**: SFTP/FTP, cloud storage, network providers
+3. **WebSocket Implementation**: Real-time updates instead of polling
+4. **Plugin System**: Dynamic loading of extensions and providers
+5. **Event-Driven Architecture**: Better decoupling of components
+6. **Microservice Options**: Potential for service decomposition
+7. **Enhanced Caching**: Intelligent result caching for performance
 
 ### Feature Roadmap Highlights
-1. **Role-Based Access Control**: Per-user/per-module permissions
-2. **Audit Logging**: Comprehensive file operation tracking
-3. **Background Operations**: Progress bars and cancel functionality
-4. **Media Previews**: Image, video, and text file previews
-5. **Clipboard Integration**: Copy/paste between WebNC and system
-6. **Terminal Emulation**: Full terminal access via Ctrl+O
-7. **Drag-and-Drop**: File upload via drag-and-drop interface
-8. **Extended Archive Support**: Creation and extraction, not just listing
-9. **Search Enhancements**: Saved searches, search-as-you-type
-10. **Configuration Profiles**: Export/import of UI and operation settings
+1. **Linux/Mac Support**: Implement `LinuxFileService` via `FileService` ABC
+2. **Role-Based Access Control**: Per-user/per-module permissions
+3. **Audit Logging**: Comprehensive file operation tracking
+4. **Background Operations**: Progress bars and cancel functionality
+5. **Media Previews**: Image, video, and text file previews
+6. **Clipboard Integration**: Copy/paste between WebNC and system
+7. **Terminal Emulation**: Full terminal access via Ctrl+O
+8. **Drag-and-Drop**: File upload via drag-and-drop interface
+9. **Extended Archive Support**: Creation and extraction, not just listing
+10. **Search Enhancements**: Saved searches, search-as-you-type
+11. **Configuration Profiles**: Export/import of UI and operation settings
 
 This documentation provides a comprehensive overview of the WebNC codebase structure, architectural decisions, and extension guidelines. For the most current information, please refer to the `History.md` file which contains detailed development progress.
