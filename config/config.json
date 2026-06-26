@@ -1,0 +1,82 @@
+{
+  "operations": {
+    "copy": {
+      "max_retries": 3,
+      "timeout": 600,
+      "interval": 500
+    },
+    "move": {
+      "max_retries": 3,
+      "timeout": 600,
+      "interval": 500
+    },
+    "batch_delete": {
+      "max_retries": 2,
+      "timeout": 120,
+      "interval": 300
+    },
+    "search": {
+      "max_retries": 2,
+      "timeout": 120,
+      "interval": 300
+    },
+    "compare": {
+      "max_retries": 2,
+      "timeout": 120,
+      "interval": 300
+    },
+    "sync_plan": {
+      "max_retries": 2,
+      "timeout": 120,
+      "interval": 300
+    },
+    "sync_execute": {
+      "max_retries": 2,
+      "timeout": 300,
+      "interval": 500
+    },
+    "archive_list": {
+      "max_retries": 1,
+      "timeout": 30,
+      "interval": 300
+    }
+  },
+  "keybindings": {
+    "F1": "help",
+    "F2": "menu_left",
+    "F3": "view",
+    "F4": "edit",
+    "F5": "copy",
+    "F6": "move",
+    "F7": "mkdir",
+    "F8": "delete",
+    "F9": "search",
+    "F10": "quit",
+    "F11": "fullscreen",
+    "Enter": "navigate",
+    "Tab": "switch_panel",
+    "Insert": "select",
+    "+": "select_group",
+    "-": "deselect_group",
+    "*": "invert_selection",
+    "Backspace": "go_up",
+    "ArrowUp": "up",
+    "ArrowDown": "down",
+    "Home": "home",
+    "End": "end",
+    "PageUp": "page_up",
+    "PageDown": "page_down"
+  },
+  "exec": {
+    "allowed_commands": [],
+    "denied_commands": [
+      "format",
+      "diskpart",
+      "shutdown",
+      "reg.exe"
+    ]
+  },
+  "editor": {
+    "max_edit_size": 1048576
+  }
+}
