@@ -100,6 +100,8 @@ client/                  # Frontend (React, no build step)
 config/config.json       # Operation settings (auto-created)
 bin/run.bat              # CMD wrapper
 bin/manage_server.ps1    # PowerShell management
+history/                 # Development history summaries (HISTORY.00001-00015)
+version.txt              # Application version
 ```
 
 **Detailed:** [REPOSITORY_MAP.md](docs/REPOSITORY_MAP.md) · [CODEBASE_DOCUMENTATION.md](docs/CODEBASE_DOCUMENTATION.md)
@@ -121,6 +123,7 @@ bin/manage_server.ps1    # PowerShell management
 | `/api/sync/plan`, `/api/sync/execute` | GET/POST | Sync |
 | `/api/archive/list` | GET | Archive contents |
 | `/api/exec` | POST | Execute shell command |
+| `/api/link` | POST | Create symlink/junction/hardlink |
 | `/api/operation/{id}` | GET | Poll async status |
 | `/api/config` | GET/PUT | Server config |
 | `/api/health` | GET | Health check (no auth) |
@@ -153,6 +156,10 @@ $ py webnc_server.py --help
 - [x] Keyboard shortcut config — `keybindings` in `config.json`, action dispatch map
 - [x] Command input — `POST /api/exec`, interactive `>` line, terminal output area
 - [x] Operation retry/timeout config — per-operation in `config.json`, polling on frontend
+- [x] Command history — ArrowUp/Down, localStorage-backed, max 100 entries
+- [x] Symbolic links — `POST /api/link`, symlink/junction/hardlink fallback
+- [x] NDC Tree Dialog — full-screen directory tree, lazy-load, arrow-key nav
+- [x] Extension associations — configurable default actions per file type
 
 ### Productize Core
 - [ ] Linux support via VFS abstraction layer
@@ -167,7 +174,7 @@ $ py webnc_server.py --help
 - [ ] Image / text preview (inline)
 - [ ] Clipboard copy / paste
 - [ ] Archive extract / create
-- [ ] Editor enhancement — find/replace, `max_edit_size` config
+- [ ] Editor enhancement — find/replace (max_edit_size config already implemented)
 
 ### Self-Hosted Product
 - [ ] SFTP / FTP provider via VFS
@@ -178,11 +185,9 @@ $ py webnc_server.py --help
 - [ ] Landing page
 
 ### Also Planned
-- [ ] Symlink support (`/api/link`)
-- [ ] Extension-to-action associations
-- [ ] Terminal emulation (Ctrl+O)
+### Also Planned
+- [ ] Terminal emulation (Ctrl+O) — command input exists, full terminal planned
 - [ ] Directory hotlist
-- [ ] NDC Tree dialog
 
 ## Documentation
 
@@ -197,7 +202,9 @@ $ py webnc_server.py --help
 | [SECURITY.md](docs/SECURITY.md) | Threat model, vulnerability reporting |
 | [COMPLIANCE.md](docs/COMPLIANCE.md) | Security audit, data handling, compliance |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Known issues and solutions |
-| [CHANGELOG.md](CHANGELOG.md) | Version history |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
+| [History.md](History.md) | Detailed development history |
+| [history/](history/) | Per-milestone development summaries (00001–00015) |
 
 ## License
 

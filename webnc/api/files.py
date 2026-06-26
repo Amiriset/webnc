@@ -1,4 +1,3 @@
-import asyncio
 import mimetypes
 import os
 from typing import Optional
@@ -18,24 +17,16 @@ from webnc.models.files import (
     BatchDeleteRequest,
     SearchRequest,
     EditRequest,
+    LinkRequest,
 )
 from webnc.operations.files import (
-    ListOperation,
-    ViewOperation,
-    WriteOperation,
-    DownloadOperation,
-    UploadOperation,
     CopyOperation,
     MoveOperation,
-    RenameOperation,
-    MakeDirectoryOperation,
-    DeleteOperation,
     BatchDeleteOperation,
     SearchOperation,
-    FileInfoOperation,
-    TreeOperation,
 )
 from webnc.operations.queue import OperationQueue
+from webnc.services.file_service import FileService
 
 router = APIRouter()
 
@@ -45,6 +36,11 @@ FS_TIMEOUT = 10.0
 def get_queue() -> OperationQueue:
     from webnc.main import operation_queue
     return operation_queue
+
+
+def get_file_service() -> FileService:
+    from webnc.main import file_service
+    return file_service
 
 
 def _get_cm():
@@ -69,8 +65,6 @@ def _check_edit_size(virtual_path: str) -> None:
             )
     except OSError:
         pass
-    from webnc.main import operation_queue
-    return operation_queue
 
 
 # ──── Directory listing ──────────────────────────────────────────────────────
@@ -82,12 +76,13 @@ async def list_directory(
     sort_dir: str = Query("asc", description="Sort direction: asc or desc"),
     show_hidden: bool = Query(False, description="Show hidden files (dotfiles)"),
     filter: Optional[str] = Query(None, description="Wildcard filter pattern (e.g. *.txt)"),
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("GET /api/list  path=%s sort=%s %s filter=%s", path, sort_by, sort_dir, filter or "*")
-    op = ListOperation(path=path, sort_by=sort_by, sort_dir=sort_dir, show_hidden=show_hidden, filter=filter)
-    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
-    return DirListing(**data)
+    result = fs.list_directory(path, sort_by, sort_dir, show_hidden, filter)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    return DirListing(**result)
 
 
 # ──── File viewing / content ─────────────────────────────────────────────────
@@ -96,15 +91,16 @@ async def list_directory(
 async def view_file(
     path: str = Query(..., description="File path to view"),
     encoding: str = Query("utf-8", description="Text encoding"),
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
     for_edit: bool = Query(False, description="If true, check max_edit_size limit"),
 ):
     logger.info("GET /api/view  path=%s encoding=%s for_edit=%s", path, encoding, for_edit)
     if for_edit:
         _check_edit_size(path)
-    op = ViewOperation(path=path, encoding=encoding)
-    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
-    return data
+    result = fs.read_file(path, encoding)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    return result
 
 
 # ──── File edit / save ───────────────────────────────────────────────────────
@@ -112,12 +108,13 @@ async def view_file(
 @router.post("/api/edit", response_model=OperationResult)
 async def edit_file(
     req: EditRequest,
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("POST /api/edit  path=%s content_len=%d", req.path, len(req.content))
-    op = WriteOperation(path=req.path, content=req.content)
-    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
-    return OperationResult(success=True, message=f"Saved {req.path}", path=data["path"])
+    result = fs.write_file(req.path, req.content)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    return OperationResult(success=True, message=f"Saved {req.path}", path=result["path"])
 
 
 # ──── File download ──────────────────────────────────────────────────────────
@@ -125,12 +122,13 @@ async def edit_file(
 @router.get("/api/download")
 async def download_file(
     path: str = Query(...),
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("GET /api/download  path=%s", path)
-    op = DownloadOperation(path=path)
-    await queue.run_sync(op, timeout=FS_TIMEOUT)
-    file_path = op._path
+    try:
+        file_path = fs.download_path(path)
+    except (FileNotFoundError, IsADirectoryError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return FileResponse(
         file_path,
         filename=file_path.name,
@@ -144,15 +142,16 @@ async def download_file(
 async def upload_file(
     dest_dir: str = Query("/", description="Destination directory"),
     file: UploadFile = File(...),
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("POST /api/upload  dest=%s file=%s size=%s", dest_dir, file.filename, file.size)
     content = await file.read()
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail="File too large")
-    op = UploadOperation(dest_dir=dest_dir, filename=file.filename, content=content)
-    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
-    return OperationResult(success=True, message=f"Uploaded {file.filename}", path=data["path"])
+    result = fs.upload(dest_dir, file.filename, content)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    return OperationResult(success=True, message=f"Uploaded {file.filename}", path=result["path"])
 
 
 # ──── Copy (F5) ──────────────────────────────────────────────────────────────
@@ -186,12 +185,13 @@ async def move_item(
 @router.post("/api/rename", response_model=OperationResult)
 async def rename_item(
     req: RenameRequest,
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("POST /api/rename  path=%s new_name=%s", req.path, req.new_name)
-    op = RenameOperation(path=req.path, new_name=req.new_name)
-    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
-    return OperationResult(success=True, message=f"Renamed \u2192 {req.new_name}", path=data["path"])
+    result = fs.rename(req.path, req.new_name)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    return OperationResult(success=True, message=f"Renamed \u2192 {req.new_name}", path=result["path"])
 
 
 # ──── Create directory (F7) ──────────────────────────────────────────────────
@@ -199,12 +199,29 @@ async def rename_item(
 @router.post("/api/mkdir", response_model=OperationResult)
 async def make_directory(
     req: MkdirRequest,
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("POST /api/mkdir  path=%s", req.path)
-    op = MakeDirectoryOperation(path=req.path)
-    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
-    return OperationResult(success=True, message=f"Created {data['path']}", path=data["path"])
+    result = fs.make_directory(req.path)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    return OperationResult(success=True, message=f"Created {result['path']}", path=result["path"])
+
+
+# ──── Symbolic link ──────────────────────────────────────────────────────────
+
+@router.post("/api/link", response_model=OperationResult)
+async def create_link(
+    req: LinkRequest,
+    fs: FileService = Depends(get_file_service),
+):
+    logger.info("POST /api/link  target=%s link_path=%s", req.target, req.link_path)
+    result = fs.create_link(req.target, req.link_path)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    kind = result.get("created_as", "symlink")
+    label = {"symlink": "SymLinked", "junction": "Junction", "hardlink": "HardLinked", "mklink": "Linked"}.get(kind, "Linked")
+    return OperationResult(success=True, message=f"{label} \u2192 {result['path']}", path=result["path"])
 
 
 # ──── Delete (F8) ────────────────────────────────────────────────────────────
@@ -212,11 +229,12 @@ async def make_directory(
 @router.post("/api/delete", response_model=OperationResult)
 async def delete_item(
     req: DeleteRequest,
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("POST /api/delete  path=%s recursive=%s", req.path, req.recursive)
-    op = DeleteOperation(path=req.path, recursive=req.recursive)
-    await queue.run_sync(op, timeout=FS_TIMEOUT)
+    result = fs.delete(req.path, req.recursive)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
     return OperationResult(success=True, message=f"Deleted {req.path}")
 
 
@@ -251,12 +269,13 @@ async def search_files(
 @router.get("/api/info")
 async def file_info(
     path: str = Query(...),
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("GET /api/info  path=%s", path)
-    op = FileInfoOperation(path=path)
-    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
-    return data
+    result = fs.file_info(path)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    return result.get("data", result)
 
 
 # ──── Directory Tree ─────────────────────────────────────────────────────────
@@ -264,9 +283,10 @@ async def file_info(
 @router.get("/api/tree")
 async def tree(
     path: str = Query(...),
-    queue: OperationQueue = Depends(get_queue),
+    fs: FileService = Depends(get_file_service),
 ):
     logger.info("GET /api/tree  path=%s", path)
-    op = TreeOperation(path=path)
-    data = await queue.run_sync(op, timeout=FS_TIMEOUT)
-    return data
+    result = fs.tree(path)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+    return result

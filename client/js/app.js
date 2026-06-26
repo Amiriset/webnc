@@ -2,12 +2,12 @@
 const { useState, useEffect, useRef, useCallback } = React;
 const h = React.createElement;
 
-import { MONO, fmtSize, fmtDate, toWinPath, fileColor, fnmatch, isArchive } from "./lib/utils.js";
+import { MONO, fmtSize, fmtDate, toWinPath, fileColor, fnmatch, isArchive, isImage, isMarkdown, mdToHtml } from "./lib/utils.js";
 
-import { api, apiList, apiView, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, apiSearch, apiDisk, apiInfo, apiDrives, apiTree, apiArchiveList, pollOperation, getToken, setToken, logout, setLogoutCallback, ncConfig, updateConfig, apiGetConfig, apiExec } from "./lib/api.js";
+import { api, apiList, apiView, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, apiSearch, apiDisk, apiInfo, apiDrives, apiTree, apiArchiveList, pollOperation, getToken, setToken, logout, setLogoutCallback, ncConfig, updateConfig, apiGetConfig, apiExec, apiLink } from "./lib/api.js";
 import { loadConfig, saveConfig } from "./lib/config.js";
 import { Panel } from "./components/Panel.js";
-import { FileViewer, ConfirmDialog, InputDialog, LoginDialog, DriveDialog, InfoDialog, SysInfoDialog, CompareDialog, SyncDialog, HistoryDialog, SearchDialog, ConfigDialog, TimeoutsDialog, HelpDialog, ArchiveDialog, EditorDialog } from "./dialogs/index.js";
+import { FileViewer, ConfirmDialog, InputDialog, AlertDialog, LoginDialog, DriveDialog, InfoDialog, SysInfoDialog, CompareDialog, SyncDialog, HistoryDialog, SearchDialog, ConfigDialog, TimeoutsDialog, HelpDialog, ArchiveDialog, EditorDialog, TreeDialog } from "./dialogs/index.js";
 
 export function NortonCommander() {
   // ── Panel state ───────────────────────────────────────────────────────────
@@ -29,6 +29,7 @@ export function NortonCommander() {
   const [viewer, setViewer] = useState(null);
   const [editorDlg, setEditorDlg] = useState(null);
   const [dialog, setDialog] = useState(null);
+  const [alertDlg, setAlertDlg] = useState(null);
   const [inputDlg, setInputDlg] = useState(null);
   const [infoDlg, setInfoDlg] = useState(null);
   const [driveDlg, setDriveDlg] = useState(null);
@@ -43,6 +44,7 @@ export function NortonCommander() {
   const [statusMsg, setStatusMsg] = useState("Connecting...");
   const [diskInfo, setDiskInfo] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
 
   // ── Per-panel state ───────────────────────────────────────────────────────
   const [leftSortBy, setLeftSortBy] = useState("name");
@@ -75,7 +77,10 @@ export function NortonCommander() {
   const [timeoutsDlg, setTimeoutsDlg] = useState(null);
   const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement);
   const [cmdLine, setCmdLine] = useState("");
+  const loadHistoryTexts = () => { try { const h = JSON.parse(localStorage.getItem("cmdHistory") || "[]"); return Array.isArray(h) ? h.slice(-100) : []; } catch { return []; } };
   const [cmdHistory, setCmdHistory] = useState([]);
+  const [cmdHistoryTexts, setCmdHistoryTexts] = useState(loadHistoryTexts);
+  const [cmdHistoryIdx, setCmdHistoryIdx] = useState(-1);
   const termRef = useRef(null);
   useEffect(() => { if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight; }, [cmdHistory]);
   const [keyBindings, setKeyBindings] = useState({
@@ -83,7 +88,9 @@ export function NortonCommander() {
     "Enter":"navigate","Tab":"switch_panel","Insert":"select","+":"select_group","-":"deselect_group","*":"invert_selection","Backspace":"go_up",
     "ArrowUp":"up","ArrowDown":"down","Home":"home","End":"end","PageUp":"page_up","PageDown":"page_down"
   });
+  const [associations, setAssociations] = useState({});
   const [activeTarget, setActiveTarget] = useState("panels");
+  const [treeDlg, setTreeDlg] = useState(null);
   const [helpDlg, setHelpDlg] = useState(null);
   const [archiveDlg, setArchiveDlg] = useState(null);
   const [loginDlg, setLoginDlg] = useState(null);
@@ -118,7 +125,11 @@ export function NortonCommander() {
       const fl = optFilter || (side === "left" ? leftFilter : rightFilter);
       const data = await apiList(path, sb, sd, fl);
       const items = [];
-      if (data.parent !== null && data.parent !== undefined) items.push({ name: "..", path: data.parent, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+      if (data.parent !== null && data.parent !== undefined) {
+        const driveRoot = "/" + data.path.split("/").filter(Boolean)[0] + "/";
+        items.push({ name: ".", path: driveRoot, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+        items.push({ name: "..", path: data.parent, is_dir: true, size: 0, modified: "", extension: "", _isParent: true });
+      }
       items.push(...data.items.map((i) => ({ ...i, _isParent: false })));
       setItems(items); setIdx(0); setSel(new Set());
     } catch (e) { setError(e.message); setItems([]); }
@@ -129,7 +140,8 @@ export function NortonCommander() {
   useEffect(() => {
     (async () => {
       try {
-        await api("GET", "/api/health");
+        const health = await api("GET", "/api/health");
+        setAppVersion(health.version || "");
         setConnected(true); setStatusMsg("Ready");
         const disk = await apiDisk("/C/"); setDiskInfo(disk);
         setLeftSortBy(config.defaultSortBy); setLeftSortDir(config.defaultSortDir);
@@ -187,7 +199,7 @@ export function NortonCommander() {
     }
     (side === "left" ? setLeftViewMode : setRightViewMode)(mode);
   };
-  const handleDirInfo = async (side) => { try { setInfoDlg(await apiInfo(side === "left" ? leftPath : rightPath)); } catch (err) { setStatusMsg(`Info error: ${err.message}`); } };
+  const handleDirInfo = async (side) => { try { setInfoDlg(await apiInfo(side === "left" ? leftPath : rightPath)); } catch (err) { setAlertDlg({ message: `Info error: ${err.message}` }); } };
 
   const handleEditorSave = async (path, content) => {
     await api("POST", "/api/edit", { path, content });
@@ -198,7 +210,9 @@ export function NortonCommander() {
     const cmd = cmdLine.trim();
     if (!cmd) return;
     setCmdLine("");
+    setCmdHistoryIdx(-1);
     setStatusMsg(`Executing: ${cmd}`);
+    setCmdHistoryTexts((prev) => { const n = [...prev, cmd].slice(-100); localStorage.setItem("cmdHistory", JSON.stringify(n)); return n; });
     try {
       const res = await apiExec(cmd, activePanel === "left" ? leftPath : rightPath);
       const out = [res.stdout, res.stderr].filter(Boolean).join("\n").trim();
@@ -206,7 +220,7 @@ export function NortonCommander() {
       setStatusMsg(`Done (exit code ${res.returncode})`);
     } catch (err) {
       setCmdHistory((prev) => [...prev, { cmd, stdout: err.message, returncode: -1 }]);
-      setStatusMsg(`Exec error: ${err.message}`);
+      setAlertDlg({ message: `Exec error: ${err.message}` });
     }
   };
 
@@ -260,7 +274,7 @@ export function NortonCommander() {
       const children = data.dirs.map((d) => ({ ...d, depth: 1, expanded: false, loading: false }));
       setNodes([root, ...children]); setCursor(0); setLoaded(new Set([rootPath]));
       treeNavigateOpposite(side, rootPath);
-    } catch (err) { setStatusMsg(`Tree error: ${err.message}`); }
+    } catch (err) { setAlertDlg({ message: `Tree error: ${err.message}` }); }
   };
   const expandTreeNode = async (side, node) => {
     if (node.loading) return;
@@ -272,7 +286,7 @@ export function NortonCommander() {
       const children = data.dirs.map((d) => ({ ...d, depth: node.depth + 1, expanded: false, loading: false }));
       setNodes((prev) => { const idx = prev.findIndex((n) => n.path === node.path); if (idx === -1) return prev; return [...prev.slice(0, idx + 1), ...children, ...prev.slice(idx + 1)].map((n) => n.path === node.path ? { ...n, loading: false, expanded: true } : n); });
       setLoaded((prev) => new Set(prev).add(node.path));
-    } catch (err) { setNodes((prev) => prev.map((n) => n.path === node.path ? { ...n, loading: false } : n)); setStatusMsg(`Tree expand error: ${err.message}`); }
+    } catch (err) { setNodes((prev) => prev.map((n) => n.path === node.path ? { ...n, loading: false } : n)); setAlertDlg({ message: `Tree expand error: ${err.message}` }); }
   };
   const collapseTreeNode = (side, node) => {
     const setNodes = side === "left" ? setLeftTreeNodes : setRightTreeNodes;
@@ -282,8 +296,26 @@ export function NortonCommander() {
   const treeNavigateOpposite = (side, treePath) => { if (!treePath) return; if (side === "left") { setRightPath(treePath); fetchDir(treePath, "right"); } else { setLeftPath(treePath); fetchDir(treePath, "left"); } };
 
   // ── Commands menu handlers ────────────────────────────────────────────────
-  const handleSystemInfo = async () => { try { setSysInfoDlg(await api("GET", "/api/sysinfo")); } catch (err) { setStatusMsg(`SysInfo error: ${err.message}`); } };
-  const handleCompare = async () => { try { const { operation_id, poll } = await api("POST", "/api/compare", { left: leftPath, right: rightPath }); setCompareDlg(await pollOperation(operation_id, poll?.timeout, poll?.interval)); } catch (err) { setStatusMsg(`Compare error: ${err.message}`); } };
+  const handleSystemInfo = async () => { try { setSysInfoDlg(await api("GET", "/api/sysinfo")); } catch (err) { setAlertDlg({ message: `SysInfo error: ${err.message}` }); } };
+
+  const handleLink = () => {
+    const side = activePanel;
+    const items = side === "left" ? leftItems : rightItems;
+    const idx = side === "left" ? leftIdx : rightIdx;
+    const item = items[idx];
+    const currentPath = side === "left" ? leftPath : rightPath;
+    const oppPath = side === "left" ? rightPath : leftPath;
+    if (!item || item._isParent) return;
+    setInputDlg({
+      title: "Create Symbolic Link",
+      label: `Link target: ${item.name} (from ${toWinPath(currentPath)})\nEnter link name in ${toWinPath(oppPath)}:`,
+      defaultValue: item.name,
+      onOk: async (name) => { setInputDlg(null); try { await apiLink(item.path, `${oppPath.replace(/\/$/, "")}/${name}`); setStatusMsg(`Linked ${item.name} \u2192 ${name}`); fetchDir(oppPath, side === "left" ? "right" : "left"); } catch (err) { setAlertDlg({ message: err.message }); } },
+      onCancel: () => setInputDlg(null),
+    });
+  };
+
+  const handleCompare = async () => { try { const { operation_id, poll } = await api("POST", "/api/compare", { left: leftPath, right: rightPath }); setCompareDlg(await pollOperation(operation_id, poll?.timeout, poll?.interval)); } catch (err) { setAlertDlg({ message: `Compare error: ${err.message}` }); } };
   const compareNavigate = (item, side) => { if (!item || !item.path) return; const setPath = side === "left" ? setLeftPath : setRightPath; if (item.is_dir) { setPath(item.path); fetchDir(item.path, side); } else { const pp = item.path.substring(0, item.path.lastIndexOf("/")) || "/C/"; setPath(pp); fetchDir(pp, side); } };
   const handleSync = () => { setSyncPlan(null); setSyncActions([]); setSyncDlg("setup"); };
   const handleSyncCompare = async (opts) => {
@@ -293,11 +325,11 @@ export function NortonCommander() {
       const plan = await pollOperation(operation_id, poll?.timeout, poll?.interval);
       const defaultActions = []; plan.forEach((item) => { if (item.suggested) defaultActions.push({ name: item.path, action: item.suggested }); });
       setSyncPlan(plan); setSyncActions(defaultActions); setSyncDlg("plan"); setStatusMsg("Ready");
-    } catch (err) { setStatusMsg(`Sync error: ${err.message}`); }
+    } catch (err) { setAlertDlg({ message: `Sync error: ${err.message}` }); }
   };
   const syncExecute = async () => {
     if (!syncActions.length) { setStatusMsg("No items selected to sync"); return; }
-    try { const { operation_id, poll } = await api("POST", "/api/sync/execute", { left: leftPath, right: rightPath, actions: syncActions }); const result = await pollOperation(operation_id, poll?.timeout, poll?.interval); setSyncDlg("result"); setSyncPlan(result); } catch (err) { setStatusMsg(`Sync execute error: ${err.message}`); }
+    try { const { operation_id, poll } = await api("POST", "/api/sync/execute", { left: leftPath, right: rightPath, actions: syncActions }); const result = await pollOperation(operation_id, poll?.timeout, poll?.interval); setSyncDlg("result"); setSyncPlan(result); } catch (err) { setAlertDlg({ message: `Sync execute error: ${err.message}` }); }
   };
   const syncToggleItem = (path, action) => { setSyncActions((prev) => { if (!action) return prev.filter((a) => a.name !== path); const idx = prev.findIndex((a) => a.name === path); if (idx >= 0) { const u = [...prev]; u[idx] = { name: path, action }; return u; } return [...prev, { name: path, action }]; }); };
   const syncSetAll = (on) => { if (!syncPlan || !syncPlan.length) return; if (!on) { setSyncActions([]); return; } const result = []; syncPlan.forEach((item) => { if (item.suggested) result.push({ name: item.path, action: item.suggested }); }); setSyncActions(result); };
@@ -313,9 +345,23 @@ export function NortonCommander() {
       setPath(item.path); fetchDir(item.path, side);
     } else {
       if (curMode === "search") setViewMode("full");
-      setViewer({ filename: item.name, content: "", loading: true }); try { const data = await apiView(item.path); setViewer({ filename: item.name, content: data.content, loading: false }); } catch (e) { setViewer({ filename: item.name, content: `Error: ${e.message}`, loading: false }); }
+      const ext = item.extension ? "." + item.extension.toLowerCase() : "";
+      const action = associations[ext];
+      if (action === "edit") {
+        try { const v = await apiView(item.path, true); setEditorDlg({ filename: item.name, content: v.content, path: item.path }); } catch (err) { setAlertDlg({ message: `Edit error: ${err.message}` }); }
+      } else if (action === "archive") {
+        const doOpen = async (pw) => { setArchiveDlg({ path: item.path, name: item.name, loading: true, password: pw }); try { const data = await apiArchiveList(item.path, pw); setArchiveDlg({ path: item.path, name: item.name, data, loading: false, password: pw }); } catch (err) { if (err.message && err.message.includes("password")) { setArchiveDlg(null); setInputDlg({ title: "Archive Password", label: `Password for ${item.name}:`, defaultValue: "", onOk: (p) => { setInputDlg(null); doOpen(p); }, onCancel: () => setInputDlg(null) }); } else { setAlertDlg({ message: err.message }); } } }; doOpen();
+      } else if (isImage(item.name)) {
+        setViewer({ filename: item.name, type: "image", src: "", loading: true });
+        try { const tok = getToken(); const r = await fetch(`/api/download?path=${encodeURIComponent(item.path)}`, { headers: tok ? { "X-Session-Token": tok } : {} }); if (!r.ok) throw new Error("Download failed"); const blob = await r.blob(); const url = URL.createObjectURL(blob); setViewer({ filename: item.name, type: "image", src: url, loading: false }); } catch (err) { setAlertDlg({ message: `Preview error: ${err.message}` }); }
+      } else if (isMarkdown(item.name)) {
+        setViewer({ filename: item.name, type: "html", content: "", loading: true });
+        try { const v = await apiView(item.path); setViewer({ filename: item.name, type: "html", content: mdToHtml(v.content), loading: false }); } catch (err) { setAlertDlg({ message: `View error: ${err.message}` }); }
+      } else {
+        setViewer({ filename: item.name, content: "", loading: true }); try { const data = await apiView(item.path); setViewer({ filename: item.name, content: data.content, loading: false }); } catch (e) { setViewer({ filename: item.name, content: `Error: ${e.message}`, loading: false }); }
+      }
     }
-  }, [fetchDir, leftViewMode, rightViewMode]);
+  }, [fetchDir, leftViewMode, rightViewMode, associations, apiView, apiArchiveList]);
 
   // ── Preview (quick view) ──────────────────────────────────────────────────
   const fetchPreview = useCallback(async (side) => {
@@ -352,6 +398,7 @@ export function NortonCommander() {
     if (viewer || editorDlg || dialog || inputDlg || infoDlg || driveDlg || searchDlg || sysInfoDlg || compareDlg || syncDlg || historyDlg || configDlg || timeoutsDlg || helpDlg || archiveDlg || loginDlg) return;
     const handler = async (e) => {
       if (activeTarget === "terminal") return;
+      if (treeDlg) return;
       const { items, idx, setIdx, path, selected, setSelected } = activePanel === "left"
         ? { items: leftItems, idx: leftIdx, setIdx: setLeftIdx, path: leftPath, selected: leftSelected, setSelected: setLeftSelected }
         : { items: rightItems, idx: rightIdx, setIdx: setRightIdx, path: rightPath, selected: rightSelected, setSelected: setRightSelected };
@@ -405,11 +452,12 @@ export function NortonCommander() {
         help: () => setHelpDlg(true),
         menu_left: () => setOpenMenu((p) => (p ? null : "Left")),
         view: async () => { if (item && !item._isParent && !item.is_dir) { setViewer({ filename: item.name, content: "", loading: true }); try { const d = await apiView(item.path); setViewer({ filename: item.name, content: d.content, loading: false }); } catch (err) { setViewer({ filename: item.name, content: `Error: ${err.message}`, loading: false }); } } },
-        edit: async () => { if (item && !item._isParent) { if (item.is_dir) { try { setInfoDlg(await apiInfo(item.path)); } catch (err) { setStatusMsg(`Info error: ${err.message}`); } } else { try { const v = await apiView(item.path, true); setEditorDlg({ filename: item.name, content: v.content, path: item.path }); } catch (err) { setStatusMsg(`Edit error: ${err.message}`); } } } },
-        copy: () => { if (!item || item._isParent) return; const t = selected.size > 0 ? [...selected] : [item.path]; setDialog({ title: "Copy", message: `Copy ${t.length} item(s) to ${oppPath}?`, onYes: async () => { setDialog(null); try { for (const s of t) await apiCopy(s, oppPath); setStatusMsg(`Copied ${t.length} item(s)`); setSelected(new Set()); refreshBoth(); } catch (err) { setStatusMsg(`Copy error: ${err.message}`); } }, onNo: () => setDialog(null) }); },
-        move: () => { if (!item || item._isParent) return; if (selected.size === 0) { setInputDlg({ title: "Move / Rename", label: `Rename "${item.name}" or move to ${oppPath}:`, defaultValue: item.name, onOk: async (n) => { setInputDlg(null); try { if (n !== item.name) { await apiRename(item.path, n); setStatusMsg(`Renamed → ${n}`); } else { await apiMove(item.path, oppPath); setStatusMsg(`Moved → ${oppPath}`); } refreshBoth(); } catch (err) { setStatusMsg(`Move error: ${err.message}`); } }, onCancel: () => setInputDlg(null) }); } else { const t = [...selected]; setDialog({ title: "Move", message: `Move ${t.length} item(s) to ${oppPath}?`, onYes: async () => { setDialog(null); try { for (const s of t) await apiMove(s, oppPath); setStatusMsg(`Moved ${t.length} item(s)`); setSelected(new Set()); refreshBoth(); } catch (err) { setStatusMsg(`Move error: ${err.message}`); } }, onNo: () => setDialog(null) }); } },
-        mkdir: () => setInputDlg({ title: "Create Directory", label: `New directory in ${toWinPath(path)}:`, defaultValue: "", onOk: async (name) => { setInputDlg(null); try { await apiMkdir(`${path.replace(/\/$/, "")}/${name}`); setStatusMsg(`Created ${name}`); fetchDir(path, activePanel); } catch (err) { setStatusMsg(`MkDir error: ${err.message}`); } }, onCancel: () => setInputDlg(null) }),
-        delete: () => { if (!item || item._isParent) return; const t = selected.size > 0 ? [...selected] : [item.path]; const names = t.map((p) => p.split("/").pop()).join(", "); setDialog({ title: "Delete", message: `Delete ${t.length} item(s): ${names.substring(0, 60)}${names.length > 60 ? "..." : ""}?`, onYes: async () => { setDialog(null); try { if (t.length === 1) await apiDelete(t[0], true); else await apiBatchDelete(t, true); setStatusMsg(`Deleted ${t.length} item(s)`); setSelected(new Set()); fetchDir(path, activePanel); } catch (err) { setStatusMsg(`Delete error: ${err.message}`); } }, onNo: () => setDialog(null) }); },
+        edit: async () => { if (item && !item._isParent) { if (item.is_dir) { try { setInfoDlg(await apiInfo(item.path)); } catch (err) { setAlertDlg({ message: `Info error: ${err.message}` }); } } else { try { const v = await apiView(item.path, true); setEditorDlg({ filename: item.name, content: v.content, path: item.path }); } catch (err) { setAlertDlg({ message: `Edit error: ${err.message}` }); } } } },
+        copy: () => { if (!item || item._isParent) return; const t = selected.size > 0 ? [...selected] : [item.path]; setDialog({ title: "Copy", message: `Copy ${t.length} item(s) to ${oppPath}?`, onYes: async () => { setDialog(null); try { for (const s of t) await apiCopy(s, oppPath); setStatusMsg(`Copied ${t.length} item(s)`); setSelected(new Set()); refreshBoth(); } catch (err) { setAlertDlg({ message: `Copy error: ${err.message}` }); } }, onNo: () => setDialog(null) }); },
+        move: () => { if (!item || item._isParent) return; if (selected.size === 0) { setInputDlg({ title: "Move / Rename", label: `Rename "${item.name}" or move to ${oppPath}:`, defaultValue: item.name, onOk: async (n) => { setInputDlg(null); try { if (n !== item.name) { await apiRename(item.path, n); setStatusMsg(`Renamed → ${n}`); } else { await apiMove(item.path, oppPath); setStatusMsg(`Moved → ${oppPath}`); } refreshBoth(); } catch (err) { setAlertDlg({ message: `Move error: ${err.message}` }); } }, onCancel: () => setInputDlg(null) }); } else { const t = [...selected]; setDialog({ title: "Move", message: `Move ${t.length} item(s) to ${oppPath}?`, onYes: async () => { setDialog(null); try { for (const s of t) await apiMove(s, oppPath); setStatusMsg(`Moved ${t.length} item(s)`); setSelected(new Set()); refreshBoth(); } catch (err) { setAlertDlg({ message: `Move error: ${err.message}` }); } }, onNo: () => setDialog(null) }); } },
+        mkdir: () => setInputDlg({ title: "Create Directory", label: `New directory in ${toWinPath(path)}:`, defaultValue: "", onOk: async (name) => { setInputDlg(null); try { await apiMkdir(`${path.replace(/\/$/, "")}/${name}`); setStatusMsg(`Created ${name}`); fetchDir(path, activePanel); } catch (err) { setAlertDlg({ message: `MkDir error: ${err.message}` }); } }, onCancel: () => setInputDlg(null) }),
+        link: handleLink,
+        delete: () => { if (!item || item._isParent) return; const t = selected.size > 0 ? [...selected] : [item.path]; const names = t.map((p) => p.split("/").pop()).join(", "); setDialog({ title: "Delete", message: `Delete ${t.length} item(s): ${names.substring(0, 60)}${names.length > 60 ? "..." : ""}?`, onYes: async () => { setDialog(null); try { if (t.length === 1) await apiDelete(t[0], true); else await apiBatchDelete(t, true); setStatusMsg(`Deleted ${t.length} item(s)`); setSelected(new Set()); fetchDir(path, activePanel); } catch (err) { setAlertDlg({ message: `Delete error: ${err.message}` }); } }, onNo: () => setDialog(null) }); },
         search: () => setSearchDlg({ onResults: handleSearchResults }),
         quit: handleLogout,
       };
@@ -419,11 +467,11 @@ export function NortonCommander() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activePanel, leftItems, rightItems, leftIdx, rightIdx, leftPath, rightPath, leftSelected, rightSelected, leftViewMode, rightViewMode, leftTreeNodes, rightTreeNodes, leftTreeCursor, rightTreeCursor, viewer, editorDlg, dialog, inputDlg, infoDlg, driveDlg, searchDlg, sysInfoDlg, compareDlg, syncDlg, historyDlg, configDlg, timeoutsDlg, helpDlg, archiveDlg, loginDlg, leftPanelVisible, rightPanelVisible, navigate, fetchDir, toggleFullscreen, refreshBoth, handleSearchResults, handleLogout, treeNavigateOpposite, toggleTreeNode, keyBindings, apiView, apiInfo, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, setStatusMsg, setOpenMenu, setViewer, setEditorDlg, setInfoDlg, setSearchDlg, setHelpDlg, setInputDlg, setDialog, setLeftIdx, setRightIdx, setLeftSelected, setRightSelected, setLeftTreeCursor, setRightTreeCursor, setActivePanel, activeTarget]);
+  }, [activePanel, leftItems, rightItems, leftIdx, rightIdx, leftPath, rightPath, leftSelected, rightSelected, leftViewMode, rightViewMode, leftTreeNodes, rightTreeNodes, leftTreeCursor, rightTreeCursor, viewer, editorDlg, dialog, inputDlg, infoDlg, driveDlg, searchDlg, sysInfoDlg, compareDlg, syncDlg, historyDlg, configDlg, timeoutsDlg, helpDlg, archiveDlg, loginDlg, treeDlg, leftPanelVisible, rightPanelVisible, navigate, fetchDir, toggleFullscreen, refreshBoth, handleSearchResults, handleLogout, treeNavigateOpposite, toggleTreeNode, keyBindings, apiView, apiInfo, apiCopy, apiMove, apiRename, apiMkdir, apiDelete, apiBatchDelete, setStatusMsg, setOpenMenu, setViewer, setEditorDlg, setInfoDlg, setSearchDlg, setHelpDlg, setInputDlg, setDialog, setLeftIdx, setRightIdx, setLeftSelected, setRightSelected, setLeftTreeCursor, setRightTreeCursor, setActivePanel, activeTarget]);
 
-  // ── Fetch keybindings from config ───────────────────────────────────────────
+  // ── Fetch keybindings + associations from config ──────────────────────────
   useEffect(() => {
-    apiGetConfig().then(cfg => setKeyBindings(cfg.keybindings || {})).catch(() => {});
+    apiGetConfig().then(cfg => { setKeyBindings(cfg.keybindings || {}); setAssociations(cfg.associations || {}); }).catch(() => {});
   }, []);
 
   // ── Ctrl+O ────────────────────────────────────────────────────────────────
@@ -445,7 +493,7 @@ export function NortonCommander() {
   useEffect(() => { if (!openMenu) return; const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenu(null); }; window.addEventListener("click", handler); return () => window.removeEventListener("click", handler); }, [openMenu]);
 
   // ── Load drives on drive dialog open ──────────────────────────────────────
-  useEffect(() => { if (driveDlg) { (async () => { try { const all = await apiDrives(); setDrivesList(all.filter((d) => d.total > 0)); } catch (err) { setStatusMsg(`Drives error: ${err.message}`); setDriveDlg(null); } })(); } else setDrivesList([]); }, [driveDlg]);
+  useEffect(() => { if (driveDlg) { (async () => { try { const all = await apiDrives(); setDrivesList(all.filter((d) => d.total > 0)); } catch (err) { setAlertDlg({ message: `Drives error: ${err.message}` }); setDriveDlg(null); } })(); } else setDrivesList([]); }, [driveDlg]);
 
   // ── Menu definitions ──────────────────────────────────────────────────────
   const menuItems = {
@@ -481,10 +529,11 @@ export function NortonCommander() {
       { label: "Copy", action: () => dispatchKey("F5"), shortcut: "F5" },
       { label: "Move / Rename", action: () => dispatchKey("F6"), shortcut: "F6" },
       { label: "Make Directory", action: () => dispatchKey("F7"), shortcut: "F7" },
+      { label: "Symbolic Link", action: handleLink },
       { label: "Delete", action: () => dispatchKey("F8"), shortcut: "F8" },
     ],
     "Commands": [
-      { label: "NDC tree", disabled: true },
+      { label: "NDC tree", action: () => setTreeDlg(true) },
       { label: "Find File", action: () => setSearchDlg({ onResults: handleSearchResults }) },
       { label: "History", action: handleHistory },
       { label: fullscreen ? "  [X] EGA Lines" : "  EGA Lines", action: toggleFullscreen },
@@ -589,12 +638,13 @@ export function NortonCommander() {
     h("div", { className: "flex", style: { alignItems: "center", background: "#000", padding: "3px 8px", borderTop: activeTarget === "terminal" ? "1px solid #00FFFF" : "1px solid #0055AA" } },
       h("span", { style: { color: "#AAAAAA", fontSize: 12 } }, toWinPath(activePanel === "left" ? leftPath : rightPath) + ">"),
       (() => { const f = activePanel === "left" ? leftFilter : rightFilter; return f !== "*" ? h("span", { className: "text-yellow", style: { fontSize: 12, marginLeft: 6 } }, `[${f}]`) : null; })(),
-      h("input", { type: "text", value: cmdLine, onChange: (e) => setCmdLine(e.target.value), onClick: () => setActiveTarget("terminal"), onKeyDown: (e) => { if (activeTarget !== "terminal" && keyBindings[e.key]) { e.preventDefault(); return; } if (e.key === "Enter" && (activeTarget === "terminal" || !bothVisible)) { e.preventDefault(); handleCmdEnter(); } }, style: { background: "transparent", border: "none", color: "#AAAAAA", fontSize: 12, outline: "none", flex: 1, marginLeft: 2, caretColor: "#AAAAAA" }, autoFocus: true })),
+      h("input", { type: "text", value: cmdLine, onChange: (e) => setCmdLine(e.target.value), onClick: () => setActiveTarget("terminal"), onKeyDown: (e) => { if (activeTarget !== "terminal" && keyBindings[e.key]) { e.preventDefault(); return; } if (e.key === "ArrowUp" && cmdHistoryTexts.length > 0) { e.preventDefault(); setCmdHistoryIdx((p) => { const n = Math.min(p + 1, cmdHistoryTexts.length - 1); setCmdLine(cmdHistoryTexts[cmdHistoryTexts.length - 1 - n]); return n; }); return; } if (e.key === "ArrowDown") { e.preventDefault(); setCmdHistoryIdx((p) => { const n = Math.max(p - 1, -1); setCmdLine(n === -1 ? "" : cmdHistoryTexts[cmdHistoryTexts.length - 1 - n]); return n; }); return; } if (e.key === "Enter" && (activeTarget === "terminal" || !bothVisible)) { e.preventDefault(); handleCmdEnter(); } }, style: { background: "transparent", border: "none", color: "#AAAAAA", fontSize: 12, outline: "none", flex: 1, marginLeft: 2, caretColor: "#AAAAAA" }, autoFocus: true })),
 
     // ── Status bar ──────────────────────────────────────────────────────────
     h("div", { className: "flex", style: { background: connected ? "#000040" : "#440000", color: connected ? "#00AAAA" : "#FF5555", padding: "2px 10px", fontSize: 11, borderTop: "1px solid #0055AA", justifyContent: "space-between" } },
       h("span", null, statusMsg),
       h("span", { style: { color: "#006688", display: "flex", gap: 8 } },
+        appVersion ? h("span", { style: { color: "#555599" } }, `v${appVersion}`) : null,
         h("span", { style: { color: activeTarget === "terminal" ? "#00FF00" : "#006688" } }, "Cmd"),
         "↑↓ Enter Ins Tab Alt+F1/F2 F1-F8 · Ctrl+O · Click menu bar")),
 
@@ -605,9 +655,10 @@ export function NortonCommander() {
         h("span", { style: { color: "#00AAAA", marginLeft: 2 } }, label)))),
 
     // ── Dialogs ─────────────────────────────────────────────────────────────
-    viewer && h(FileViewer, { filename: viewer.filename, content: viewer.content, loading: viewer.loading, onClose: () => setViewer(null) }),
+    viewer && h(FileViewer, { filename: viewer.filename, content: viewer.content, loading: viewer.loading, type: viewer.type, src: viewer.src, onClose: () => setViewer(null) }),
     editorDlg && h(EditorDialog, { filename: editorDlg.filename, content: editorDlg.content, onSave: (text) => handleEditorSave(editorDlg.path, text), onClose: () => setEditorDlg(null) }),
     dialog && h(ConfirmDialog, { title: dialog.title, message: dialog.message, onYes: dialog.onYes, onNo: dialog.onNo }),
+    alertDlg && h(AlertDialog, { message: alertDlg.message, onClose: () => setAlertDlg(null) }),
     inputDlg && h(InputDialog, { title: inputDlg.title, label: inputDlg.label, defaultValue: inputDlg.defaultValue, onOk: inputDlg.onOk, onCancel: inputDlg.onCancel }),
     infoDlg && h(InfoDialog, { info: infoDlg, onClose: () => setInfoDlg(null) }),
     driveDlg && h(DriveDialog, { drives: drivesList, onSelect: (d) => { const np = `/${d.drive[0]}/`; if (driveDlg.side === "left") { setLeftPath(np); fetchDir(np, "left"); } else { setRightPath(np); fetchDir(np, "right"); } setDriveDlg(null); }, onClose: () => setDriveDlg(null) }),
@@ -618,6 +669,7 @@ export function NortonCommander() {
     historyDlg && h(HistoryDialog, { entries: historyDlg, activePanel, onClose: () => setHistoryDlg(null), onNavigate: (p, side) => { const sp = side === "left" ? setLeftPath : setRightPath; sp(p); fetchDir(p, side); } }),
     configDlg && h(ConfigDialog, { config, onSave: (c) => { saveConfig(c); updateConfig({ showHidden: c.showHidden }); setConfig(c); setConfigDlg(null); refreshBoth(); }, onClose: () => setConfigDlg(null) }),
     timeoutsDlg && h(TimeoutsDialog, { onClose: () => setTimeoutsDlg(null) }),
+    treeDlg && h(TreeDialog, { onSelect: (p) => { setLeftPath(p); setRightPath(p); fetchDir(p, "left"); fetchDir(p, "right"); setTreeDlg(null); }, onClose: () => setTreeDlg(null) }),
     helpDlg && h(HelpDialog, { onClose: () => setHelpDlg(null) }),
     archiveDlg && h(ArchiveDialog, { state: archiveDlg, onClose: () => setArchiveDlg(null), onNavigate: () => {} }),
     loginDlg && h(LoginDialog, { error: loginError, onLogin: handleLogin, onClose: () => { if (getToken()) setLoginDlg(null); } }),

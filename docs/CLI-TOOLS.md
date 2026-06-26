@@ -327,10 +327,30 @@ Managed via `/api/config` endpoint, controls operation timeouts, retry settings,
   },
   "exec": {
     "allowed_commands": [],
-    "denied_commands": ["format", "diskpart", "shutdown", "reg.exe"]
+    "denied_commands": ["format", "diskpart", "shutdown", "reg.exe"],
+    "timeout": 30
   },
   "editor": {
     "max_edit_size": 1048576
+  },
+  "associations": {
+    ".py": "edit",
+    ".js": "edit",
+    ".ts": "edit",
+    ".html": "edit",
+    ".css": "edit",
+    ".json": "edit",
+    ".md": "view",
+    ".txt": "view",
+    ".zip": "archive",
+    ".tar": "archive",
+    ".gz": "archive",
+    ".tgz": "archive",
+    ".7z": "archive",
+    ".rar": "archive",
+    ".jpg": "preview",
+    ".png": "preview",
+    ".gif": "preview"
   }
 }
 ```
@@ -348,9 +368,14 @@ Managed via `/api/config` endpoint, controls operation timeouts, retry settings,
 #### Field Descriptions — Exec
 - `allowed_commands`: Whitelist of allowed command prefixes (empty = all allowed except denied)
 - `denied_commands`: Blacklist of denied command prefixes (always blocked)
+- `timeout`: Maximum command execution time in seconds (default: 30)
 
 #### Field Descriptions — Editor
 - `max_edit_size`: Maximum file size in bytes for the editor (default: 1 MB = 1048576)
+
+#### Field Descriptions — Associations
+- Maps file extensions to default actions: `edit`, `view`, `archive`, `preview`
+- Used by frontend to determine default action when opening files
 
 #### Non-Retriable Errors
 These errors never trigger retries regardless of `max_retries` setting:

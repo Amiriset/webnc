@@ -40,6 +40,7 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Router mounting for all API endpoints
 - Configuration manager initialization
 - SSL/TLS context setup
+- Custom `log_config` passed to `uvicorn.run()` for consistent logging format
 
 #### 2. API Layer (`webnc/api/`)
 - RESTful endpoint implementations
@@ -74,12 +75,14 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Authentication providers and middleware
 - TLS/SSL certificate generation
 - Request signing and verification
+- Token printed to stderr only (not logger) to prevent token leakage to log files
 - Modules:
   - `auth_provider.py`: AuthProvider interface definition
   - `console_token.py`: ConsoleTokenProvider (default)
   - `middleware.py`: SessionAuthMiddleware
   - `tls.py`: TLS certificate generation and context creation
   - `nc_crypto.py`: Cryptographic utilities
+  - `_state.py`: Auth provider state management
 
 #### 5. Virtual File System (`webnc/vfs/`)
 - Path sanitization and conversion
@@ -108,9 +111,12 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
   - `auth.py`: Authentication models
   - `state.py`: Application state models
 
-#### 9. Services (`webnc/services/`)
-- Business logic layer (currently minimal, planned for expansion)
-- Future home for VFS providers, RBAC, etc.
+#### 4. Services (`webnc/services/`)
+- Business logic layer with platform abstraction
+- `FileService` ABC: 14 abstract methods for all filesystem operations
+- `WindowsFileService`: Windows-specific implementation (ctypes, mklink, permissions)
+- Future: `LinuxFileService` for cross-platform support
+- Global singleton in `main.py`, injected into API via `Depends(get_file_service)`
 
 ### Frontend (`client/` directory)
 
@@ -130,6 +136,12 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
 - Event handlers for keyboard shortcuts
 - Menu system integration
 - Dialog orchestration
+- Terminal/command input area (scrollable output, cmdHistory)
+- `activeTarget` state (`"panels"` | `"terminal"`) — keyboard goes exclusively to the active target
+- Tab cycles: left panel → right panel → terminal → left panel
+- Ctrl+O hides panels → auto-switches to terminal; shows panels → switches back
+- Fullscreen toggle via `document.documentElement.requestFullscreen()` (F11)
+- Configurable keyboard shortcuts via ACTION dispatch map (reads `keybindings` from config)
 
 #### 4. Components (`js/components/`)
 - `Panel.js`: File panel with all view modes (Brief, Full, Quick, Info, Tree, Search)
@@ -140,6 +152,7 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
   - `CompareDialog.js`: Directory comparison
   - `EditorDialog.js`: In-browser file editor
   - `SearchDialog.js`: File search
+  - `TreeDialog.js`: Full-screen NDC directory tree (lazy-load, arrow-key nav, Enter expand→select)
   - `ArchiveDialog.js`: Archive viewing
   - `ConfigDialog.js`: UI preferences
   - `TimeoutsDialog.js`: Operation timeout/retry configuration
@@ -230,18 +243,23 @@ Frontend Action (e.g., F5 Copy)
         ↓
 [Thread Pool] → Executes CopyOperation.run()
         ↓
-[Should Retry?] → Checks for retriable errors
+[FileService] → Delegates to WindowsFileService.copy()
         ↓
 [Filesystem Access] → Performs copy via shutil.copy2()
         ↓
 [Result] → Success/Failure with metadata
         ↓
 [Polling Response] → Updated status and progress
-        �
-[Frontend UI] → Updates operation status display
         ↓
-[Completed] → Shows success/error message
+[Frontend UI] → Updates operation status display
 ```
+
+### 4. `.` and `..` Navigation
+- Frontend adds `.` and `..` entries to directory listings (not backend)
+- `.` renders as `[.]` / `ROOT`, navigates to drive root
+- `..` renders as `↑..` / `UP--DIR`, navigates to parent directory
+- Both marked `_isParent: true` to skip selection/copy/delete operations
+- Hidden at drive root (no `parent` field in response)
 
 ## Key Architectural Decisions
 
@@ -255,6 +273,11 @@ Frontend Action (e.g., F5 Copy)
 - Prevents event loop blocking and server hangs
 - Configurable thread pool size in OperationQueue
 - Smart retry logic distinguishes retriable vs non-retriable errors
+
+### 2.1 Windows Event Loop
+- `WindowsProactorEventLoopPolicy` required for `asyncio.create_subprocess_shell` (exec endpoint)
+- `SelectorEventLoop` raises `NotImplementedError` on Windows for subprocess creation
+- Monkey-patched `new_event_loop` installs `ConnectionResetError` exception handler to prevent crashes on client disconnect
 
 ### 3. Modular Design
 - Clear separation of concerns: API → Operations → VFS → FS
@@ -354,6 +377,7 @@ Frontend Action (e.g., F5 Copy)
 - Subclass `AbstractOperation` for new operation types
 - Register in `webnc/operations/` directory
 - Automatically available via API
+- Built-in: Copy, Move, Rename, Mkdir, Link, Delete, BatchDelete, Search, List, View, Write, Download, Upload, FileInfo, Tree
 
 ### 4. Frontend Components
 - Add new dialogs in `js/dialogs/`

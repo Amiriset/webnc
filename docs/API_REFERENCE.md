@@ -21,7 +21,7 @@ Retrieve directory listing with sorting, filtering, and visibility options.
 
 **Query Parameters:**
 - `path` (string, required): Directory path in URL format (e.g., `/C/Users/`)
-- `sort_by` (string, optional): Sort field (`name`, `extension`, `time`, `size`, `unsorted`). Default: `name`
+- `sort_by` (string, optional): Sort field (`name`, `extension`, `modified`, `size`, `unsorted`). Default: `name`
 - `sort_dir` (string, optional): Sort direction (`asc`, `desc`). Default: `asc`
 - `filter` (string, optional): FNMatch pattern for filtering (e.g., `*.txt`)
 - `show_hidden` (boolean, optional): Whether to show hidden files. Default: false
@@ -44,6 +44,12 @@ Retrieve directory listing with sorting, filtering, and visibility options.
 }
 ```
 
+**Notes:**
+- Directory listings include `.` and `..` entries (frontend adds these, not backend)
+- `.` navigates to drive root, `..` navigates to parent directory
+- Both marked `_isParent: true` to skip selection/copy/delete operations
+- Hidden at drive root (no `parent` field in response)
+
 **Error Responses:**
 - 400: Invalid path or parameters
 - 401: Authentication required
@@ -52,10 +58,12 @@ Retrieve directory listing with sorting, filtering, and visibility options.
 - 500: Internal server error
 
 ### GET /api/view
-Retrieve file content (text files under 64KB).
+Retrieve file content (text files under 64KB, or under `max_edit_size` for editing).
 
 **Query Parameters:**
 - `path` (string, required): File path in URL format
+- `encoding` (string, optional): Text encoding. Default: `utf-8`
+- `for_edit` (boolean, optional): If true, check `max_edit_size` limit. Default: false
 
 **Response:**
 ```json
@@ -72,6 +80,7 @@ Retrieve file content (text files under 64KB).
 - 401: Authentication required
 - 403: Access denied
 - 404: File not found
+- 413: File too large (when `for_edit=true` and exceeds `max_edit_size`)
 - 415: Unsupported media type (binary file)
 - 500: Internal server error
 
@@ -86,18 +95,22 @@ Get file or directory details including owner information and disk usage.
 {
   "path": "/C/Users/example.txt",
   "name": "example.txt",
-  "type": "file",
+  "is_dir": false,
+  "is_symlink": false,
   "size": 1024,
-  "created": "2026-05-30 10:00:00",
-  "modified": "2026-05-30 14:30:00",
+  "modified": "2026-05-30T14:30:00",
+  "modified_ts": 1748625000.0,
   "owner": "DOMAIN\\Username",
   "permissions": "rwxr-xr-x",
-  "disk": {
-    "total": 100000000000,
-    "free": 50000000000,
-    "used": 50000000000,
-    "percent_used": 50
-  }
+  "extension": "txt",
+  "absolute_path": "C:\\Users\\example.txt",
+  "created": "2026-05-30T10:00:00",
+  "accessed": "2026-05-30T14:30:00",
+  "md5": "d41d8cd98f00b204e9800998ecf8427e",
+  "disk_total": 100000000000,
+  "disk_free": 50000000000,
+  "disk_used": 50000000000,
+  "disk_percent_used": 50
 }
 ```
 
@@ -286,7 +299,7 @@ Upload a file to a destination directory (multipart/form-data).
 - 500: Internal server error
 
 ### POST /api/exec
-Execute a shell command on the server (synchronous, 30s timeout).
+Execute a shell command on the server (synchronous, configurable timeout).
 
 **Request Body:**
 ```json
@@ -305,23 +318,32 @@ Execute a shell command on the server (synchronous, 30s timeout).
 }
 ```
 
+**Notes:**
+- stdout/stderr decoded with fallback chain: UTF-8 → CP866 (OEM) → CP1251 (ANSI) → CP437 → Latin-1
+- Commands checked against `exec.allowed_commands` (whitelist) and `exec.denied_commands` (blacklist) in config
+- Default denied: `format`, `diskpart`, `shutdown`, `reg.exe`
+- Timeout configurable via `exec.timeout` in config (default 30s)
+
+**Error Responses:**
+- 400: Empty command or command not found
+- 403: Command is denied (see `exec.denied_commands` in config)
+- 408: Command timed out (configurable, default 30s)
+- 500: Internal server error
+
 **Error Responses:**
 - 400: Empty command or command not found
 - 403: Command is denied (see `exec.denied_commands` in config)
 - 408: Command timed out (30s limit)
 - 500: Internal server error
 
-### POST /api/search
-Search for files using glob or regex patterns (async operation).
-
 ### POST /api/copy
-Copy file or directory to opposite panel (async operation).
+Copy file or directory (async operation).
 
 **Request Body:**
 ```json
 {
-  "source": "/C/Users/example.txt",
-  "destination": "/D/Backup/"
+  "src": "/C/Users/example.txt",
+  "dest": "/D/Backup/"
 }
 ```
 
@@ -330,7 +352,10 @@ Copy file or directory to opposite panel (async operation).
 {
   "operation_id": "op_1234567890abcdef",
   "status": "QUEUED",
-  "message": "Copy operation queued"
+  "poll": {
+    "timeout": 600,
+    "interval": 500
+  }
 }
 ```
 
@@ -342,13 +367,13 @@ Copy file or directory to opposite panel (async operation).
 - 500: Internal server error
 
 ### POST /api/move
-Move file or directory to opposite panel (async operation).
+Move file or directory (async operation).
 
 **Request Body:**
 ```json
 {
-  "source": "/C/Users/example.txt",
-  "destination": "/D/Backup/"
+  "src": "/C/Users/example.txt",
+  "dest": "/D/Backup/"
 }
 ```
 
@@ -357,7 +382,10 @@ Move file or directory to opposite panel (async operation).
 {
   "operation_id": "op_1234567890abcdef",
   "status": "QUEUED",
-  "message": "Move operation queued"
+  "poll": {
+    "timeout": 600,
+    "interval": 500
+  }
 }
 ```
 
@@ -369,22 +397,22 @@ Move file or directory to opposite panel (async operation).
 - 500: Internal server error
 
 ### POST /api/rename
-Rename file or directory.
+Rename file or directory (synchronous operation).
 
 **Request Body:**
 ```json
 {
-  "source": "/C/Users/example.txt",
-  "destination": "/C/Users/renamed.txt"
+  "path": "/C/Users/example.txt",
+  "new_name": "renamed.txt"
 }
 ```
 
 **Response:**
 ```json
 {
-  "operation_id": "op_1234567890abcdef",
-  "status": "QUEUED",
-  "message": "Rename operation queued"
+  "success": true,
+  "message": "Renamed → renamed.txt",
+  "path": "/C/Users/renamed.txt"
 }
 ```
 
@@ -396,7 +424,7 @@ Rename file or directory.
 - 500: Internal server error
 
 ### POST /api/mkdir
-Create directory.
+Create directory (synchronous operation).
 
 **Request Body:**
 ```json
@@ -408,11 +436,39 @@ Create directory.
 **Response:**
 ```json
 {
-  "operation_id": "op_1234567890abcdef",
-  "status": "QUEUED",
-  "message": "Create directory operation queued"
+  "success": true,
+  "message": "Created /C/Users/NewFolder/",
+  "path": "/C/Users/NewFolder/"
 }
 ```
+
+### POST /api/link
+Create a symbolic link, junction, or hardlink (synchronous operation).
+
+**Request Body:**
+```json
+{
+  "target": "/C/Users/OriginalFile.txt",
+  "link_path": "/D/Backup/LinkFile.txt"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "SymLinked → /D/Backup/LinkFile.txt",
+  "path": "/D/Backup/LinkFile.txt"
+}
+```
+
+**Notes:**
+- Attempts `os.symlink()` first
+- On Windows WinError 1/1314 (privilege) or cross-drive: falls back to `mklink /J` (directories) or `mklink /H` (files)
+- Directories: junction (`mklink /J`)
+- Files: hardlink (`mklink /H`) — requires same drive
+- If hardlink fails cross-drive: returns error with hint to enable Developer Mode
+- Created type returned in response: `symlink`, `junction`, or `hardlink`
 
 **Error Responses:**
 - 400: Invalid path
@@ -422,21 +478,21 @@ Create directory.
 - 500: Internal server error
 
 ### POST /api/delete
-Delete file or directory (async operation).
+Delete file or directory (synchronous operation).
 
 **Request Body:**
 ```json
 {
-  "path": "/C/Users/example.txt"
+  "path": "/C/Users/example.txt",
+  "recursive": false
 }
 ```
 
 **Response:**
 ```json
 {
-  "operation_id": "op_1234567890abcdef",
-  "status": "QUEUED",
-  "message": "Delete operation queued"
+  "success": true,
+  "message": "Deleted /C/Users/example.txt"
 }
 ```
 
@@ -456,7 +512,8 @@ Delete multiple files or directories (async operation).
   "paths": [
     "/C/Users/file1.txt",
     "/C/Users/file2.txt"
-  ]
+  ],
+  "recursive": false
 }
 ```
 
@@ -465,7 +522,10 @@ Delete multiple files or directories (async operation).
 {
   "operation_id": "op_1234567890abcdef",
   "status": "QUEUED",
-  "message": "Batch delete operation queued"
+  "poll": {
+    "timeout": 120,
+    "interval": 300
+  }
 }
 ```
 
@@ -728,9 +788,9 @@ Health check endpoint (no authentication required).
 **Response:**
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2026-05-30T14:30:00Z",
-  "version": "1.0.0"
+  "status": "running",
+  "state": "running",
+  "version": "0.13.0.00015"
 }
 ```
 

@@ -42,9 +42,12 @@ The main application entry point that:
 - Creates the FastAPI application instance
 - Sets up middleware (authentication, CORS, etc.)
 - Mounts all API routers
-- Initializes the configuration manager
+- Initializes the configuration manager, operation queue, and file service
 - Configures exception handlers
 - Sets up startup/shutdown events
+- Configures Windows ProactorEventLoop for subprocess support
+- Suppresses asyncio ConnectionResetError noise via logger CRITICAL
+- Passes custom `log_config` to `uvicorn.run()` for consistent logging
 
 Key components:
 ```python
@@ -105,15 +108,18 @@ Handles filesystem operations:
 - `/api/disk`: Disk usage information
 - `/api/drives`: Available drives with labels
 - `/api/tree`: Lazy-loaded directory tree
-- `/api/search`: File search by glob/regex
-- `/api/copy`, `/api/move`, etc.: Async file operations
+- `/api/search`: File search by glob/regex (async)
+- `/api/copy`: Copy file/dir (async with retry)
+- `/api/move`: Move file/dir (async with retry)
+- `/api/rename`: Rename file/dir (synchronous)
+- `/api/mkdir`: Create directory (synchronous)
+- `/api/delete`: Delete file/dir (synchronous)
+- `/api/batch-delete`: Delete multiple items (async with retry)
 
-Each endpoint follows this pattern:
-1. Validate input parameters (Pydantic models)
-2. Create operation instance
-3. Queue operation via OperationQueue (async) or run_sync (sync)
-4. Return result or `{operation_id, status: "QUEUED", poll: config}`
-5. Frontend polls `/api/operation/{id}` for async status
+Sync vs Async pattern:
+- Synchronous endpoints use `queue.run_sync(op, timeout=10.0)` and return `OperationResult` directly
+- Asynchronous endpoints use `queue.add_operation(op)` and return `{operation_id, status: "QUEUED", poll: config}`
+- Frontend polls `GET /api/operation/{id}` for async operation status
 
 #### compare.py
 Directory comparison functionality:
@@ -139,8 +145,16 @@ Archive handling:
 #### system.py
 System information endpoints:
 - `/api/sysinfo`: OS, hostname, CPU, RAM, uptime, drives
-- `/api/health`: Health check (no auth required)
+- `/api/health`: Health check (no auth required) — returns `{status, state, version}`
 - Uses `platform`, `psutil`, and Win32 APIs where applicable
+
+#### exec.py
+Command execution endpoint:
+- `/api/exec`: Execute shell command on server (synchronous, 30s timeout)
+- `_decode()`: Fallback chain for stdout/stderr: UTF-8 → CP866 (OEM) → CP1251 (ANSI) → CP437 → Latin-1
+- Command allow/deny checks via `config.json` → `exec.allowed_commands` / `exec.denied_commands`
+- Uses `asyncio.create_subprocess_shell()` with 30s timeout
+- Default denied commands: `format`, `diskpart`, `shutdown`, `reg.exe`
 
 #### drives.py
 Drive information:
@@ -180,21 +194,12 @@ Abstract base class for all operations:
   - `op_config_key`: Identifies operation type in config
 
 #### files.py
-File operation implementations:
-- `ListOperation`: Directory listing with sorting/filtering
-- `ViewOperation`: File content reading (text <64KB)
-- `WriteOperation`: File creation/overwrite (for editor)
-- `DownloadOperation`: File download preparation
-- `UploadOperation`: File upload with size validation
-- `CopyOperation`: shutil.copy2 with metadata preservation
-- `MoveOperation`: shutil.move with cross-device handling
-- `RenameOperation`: os.rename with path validation
-- `MakeDirectoryOperation`: os.makedirs with parent creation
-- `DeleteOperation`: shutil.rmtree or os.remove
-- `BatchDeleteOperation`: Multiple delete with individual error handling
-- `SearchOperation`: Glob/regex file search
-- `FileInfoOperation`: File/directory metadata
-- `TreeOperation`: Lazy directory tree
+File operation implementations (trimmed to 4 queued operations after service layer refactoring):
+- `CopyOperation`: Delegates to `file_service.copy()` (async with retry)
+- `MoveOperation`: Delegates to `file_service.move()` (async with retry)
+- `BatchDeleteOperation`: Delegates to `file_service.batch_delete()` (async with retry)
+- `SearchOperation`: Delegates to `file_service.search()` (async with retry)
+- All sync operations (list, view, write, rename, mkdir, link, delete, info, tree, download, upload) now live in `WindowsFileService`
 - Each implements `_is_non_retriable()` for specific error types
 
 #### compare.py
@@ -293,11 +298,13 @@ Pydantic models for request/response validation:
 - Used throughout API layer for input/output validation
 
 ### Services Layer (webnc/services/)
-Currently minimal, planned for future business logic:
-- Intended home for complex operations
-- Future location for VFS providers (SFTP/FTP, cloud storage)
-- Planned RBAC and permission services
-- Will house business rules separate from API concerns
+Business logic layer with platform abstraction:
+- `file_service.py`: `FileService` ABC with 14 abstract methods
+- `windows_service.py`: `WindowsFileService` implementation (all business logic, platform-specific helpers)
+- Methods: `list_directory`, `read_file`, `write_file`, `download_path`, `upload`, `copy`, `move`, `rename`, `make_directory`, `create_link`, `delete`, `batch_delete`, `search`, `file_info`, `tree`
+- Returns plain dicts with `success`/`error` fields (no Pydantic in interface)
+- Global singleton in `main.py`, injected into API via `Depends(get_file_service)`
+- Future: `LinuxFileService` for cross-platform support
 
 ### Configuration Layer (config/)
 - `config.json`: Auto-generated operation timeout/retry settings, keybindings, exec rules, editor limits

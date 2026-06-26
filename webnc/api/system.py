@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Request
 from webnc.logging_config import logger
 from webnc.operations.system import SystemInfoOperation
 from webnc.operations.queue import OperationQueue
+from webnc.version import VERSION
 
 router = APIRouter()
 FS_TIMEOUT = 10.0
@@ -24,4 +25,4 @@ async def system_info(queue: OperationQueue = Depends(get_queue)):
 async def health(request: Request):
     logger.info("GET /api/health")
     state = getattr(request.app.state, "server_state", "unknown")
-    return {"status": state, "state": state, "version": "1.0.0"}
+    return {"status": state, "state": state, "version": VERSION}

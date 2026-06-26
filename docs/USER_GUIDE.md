@@ -77,8 +77,18 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 
 ### Command Line
 - Located at bottom center
-- Accessible via `:` key or clicking
-- Supports direct command entry (planned feature: `/api/exec` endpoint)
+- Accessible via clicking on the command input area
+- Type command and press Enter to execute via `POST /api/exec`
+- Command output appears in scrollable terminal area below panels
+- Command history: ArrowUp/Down to navigate previous commands (max 100, persisted in localStorage)
+- When both panels hidden (Ctrl+O), terminal fills the full space
+
+### Active Target
+- `activeTarget` state controls which area receives keyboard input: `"panels"` or `"terminal"`
+- Tab cycles: left panel → right panel → terminal → left panel
+- Ctrl+O hides panels → auto-switches to terminal; shows panels → switches back
+- Click on panels area → switches to panels; click on terminal area → switches to terminal
+- Visual indicator: terminal border turns cyan when active
 
 ### Status Bar
 - Shows current disk usage for active panel's drive
@@ -94,7 +104,7 @@ WebNC features a classic two-panel layout inspired by Norton Commander:
 | Home / End | Move to first/last item |
 | PgUp / PgDn | Page up/down |
 | Enter | Open directory or launch file |
-| Tab | Switch active panel |
+| Tab | Switch active panel (left → right → terminal → left) |
 | Alt+F1 | Focus left panel drive selector |
 | Alt+F2 | Focus right panel drive selector |
 
@@ -262,6 +272,21 @@ Compare two directories:
 5. Click any row to navigate to that location in the respective panel
 6. Use show-filter toggles (→ = ≠ ←) to filter results by action type
 
+#### NDC Tree Dialog
+Full-screen directory tree browser:
+1. Commands menu → NDC tree
+2. Arrow keys to navigate
+3. Enter to expand/collapse directories
+4. Double-click to navigate both panels to that location
+5. Lazy-loads subdirectories via `/api/tree`
+
+#### Directory Navigation
+- `.` entry: navigates to drive root (`/C/`, `/D/`)
+- `..` entry: navigates to parent directory
+- Both hidden at drive root (no parent)
+- `.` renders as `[.]` / `ROOT`
+- `..` renders as `↑..` / `UP--DIR`
+
 #### Directory Synchronization
 Synchronize directories (Total Commander style):
 1. Commands menu → Synchronize Directories
@@ -306,7 +331,7 @@ View contents of archive files:
 #### File Viewing and Editing
 - **View (F3)**: Text files under 64KB shown in read-only viewer
 - **Info (F4 on directory)**: Shows directory statistics and contents
-- **Edit (F4 on file)**: Opens EditorDialog for text files <64KB
+- **Edit (F4 on file)**: Opens EditorDialog for text files < `max_edit_size` (default 1 MB, configurable via `editor.max_edit_size` in config.json)
   - Edit content in textarea
   - Ctrl+S indicates save shortcut
   - Save/Cancel buttons
@@ -501,6 +526,24 @@ For detailed extension guidelines, see `docs/CODEBASE_DOCUMENTATION.md`.
 - **UI settings reset**: Clear browser cache or check for conflicting extensions
 
 For more detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
+
+## Symbolic Links
+
+WebNC supports creating symbolic links, junctions, and hardlinks:
+
+### Creating Links
+1. Navigate to target file/directory
+2. Use Commands menu → Create Link (or API `POST /api/link`)
+3. Specify target and link path
+4. WebNC automatically selects best link type:
+   - **Symlink**: `os.symlink()` (requires Developer Mode on Windows)
+   - **Junction**: `mklink /J` (directories, fallback when symlink fails)
+   - **Hardlink**: `mklink /H` (files, same drive only)
+
+### Notes
+- Directories: junction preferred (no Developer Mode needed)
+- Files: hardlink requires same drive; cross-drive returns error
+- Enable Developer Mode for symlinks: Settings → Update & Security → For developers
 
 ## Safety and Security Notices
 

@@ -15,6 +15,7 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
 - **Transmission**: Never transmitted; only SHA-256 hashes of nonce+timestamp+secret are sent
 - **Lifetime**: Valid for 5 minutes from generation (timestamp window)
 - **Regeneration**: New token created on each server startup
+- **Console Output**: Token printed to `stderr` only (not logger) to prevent token leakage to log files
 
 ### Configuration Data
 - **Operation Settings** (`config.json`):
@@ -29,8 +30,9 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - Cleared when browser data is cleared
 
 ### Log Data
-- **Log File**: `logs/nc_server.log` (rotating: 5 MB × 3 backups)
+- **Log File**: `logs/webnc_server.log` (rotating: 5 MB × 3 backups)
 - **Log Format**: `%(asctime)s | %(levelname)-8s | %(message)s`
+- **Log Configuration**: Custom `log_config` dict passed to `uvicorn.run()` to ensure consistent format across all handlers (uvicorn access, error, and default logs)
 - **Logged Information**:
   - Server start/stop events
   - All API calls (endpoint, HTTP method, status code)
@@ -106,6 +108,10 @@ WebNC is designed as a local-first, keyboard-driven file manager for Windows wit
   - Protection against directory traversal attacks
   - URL format (`/C/Users/...`) used consistently in API
   - Conversion to Windows paths only at filesystem boundary
+- **Symlink Handling**:
+  - `LinkOperation` creates symlinks, junctions, or hardlinks
+  - Junctions and hardlinks created without Developer Mode via `mklink` fallback
+  - Cross-drive hardlinks rejected (Windows limitation)
 - **Error Handling**:
   - `PermissionError`: Logs warning but continues operation (skips inaccessible items)
   - No elevation of privileges or bypass of OS permissions
