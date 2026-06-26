@@ -111,9 +111,12 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
   - `auth.py`: Authentication models
   - `state.py`: Application state models
 
-#### 9. Services (`webnc/services/`)
-- Business logic layer (currently minimal, planned for expansion)
-- Future home for VFS providers, RBAC, etc.
+#### 4. Services (`webnc/services/`)
+- Business logic layer with platform abstraction
+- `FileService` ABC: 14 abstract methods for all filesystem operations
+- `WindowsFileService`: Windows-specific implementation (ctypes, mklink, permissions)
+- Future: `LinuxFileService` for cross-platform support
+- Global singleton in `main.py`, injected into API via `Depends(get_file_service)`
 
 ### Frontend (`client/` directory)
 
@@ -149,6 +152,7 @@ WebNC is a local-first, keyboard-driven, two-panel file manager for Windows with
   - `CompareDialog.js`: Directory comparison
   - `EditorDialog.js`: In-browser file editor
   - `SearchDialog.js`: File search
+  - `TreeDialog.js`: Full-screen NDC directory tree (lazy-load, arrow-key nav, Enter expand→select)
   - `ArchiveDialog.js`: Archive viewing
   - `ConfigDialog.js`: UI preferences
   - `TimeoutsDialog.js`: Operation timeout/retry configuration
@@ -239,18 +243,23 @@ Frontend Action (e.g., F5 Copy)
         ↓
 [Thread Pool] → Executes CopyOperation.run()
         ↓
-[Should Retry?] → Checks for retriable errors
+[FileService] → Delegates to WindowsFileService.copy()
         ↓
 [Filesystem Access] → Performs copy via shutil.copy2()
         ↓
 [Result] → Success/Failure with metadata
         ↓
 [Polling Response] → Updated status and progress
-        �
-[Frontend UI] → Updates operation status display
         ↓
-[Completed] → Shows success/error message
+[Frontend UI] → Updates operation status display
 ```
+
+### 4. `.` and `..` Navigation
+- Frontend adds `.` and `..` entries to directory listings (not backend)
+- `.` renders as `[.]` / `ROOT`, navigates to drive root
+- `..` renders as `↑..` / `UP--DIR`, navigates to parent directory
+- Both marked `_isParent: true` to skip selection/copy/delete operations
+- Hidden at drive root (no `parent` field in response)
 
 ## Key Architectural Decisions
 

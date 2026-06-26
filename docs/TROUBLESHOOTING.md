@@ -169,13 +169,9 @@ warnings.filterwarnings("ignore", message=".*_ProactorBasePipeTransport.*")
 
 **Cause**: Windows `ProactorEventLoop` raises `ConnectionResetError` when a client disconnects before the response is sent. Unhandled, this crashes the event loop.
 
-**Resolution**: WebNC monkey-patches `new_event_loop` to install a loop exception handler that catches `ConnectionResetError` and logs it at DEBUG level instead of crashing:
+**Resolution**: WebNC sets `asyncio` logger to `CRITICAL` to suppress the traceback noise from `_ProactorBasePipeTransport._call_connection_lost` (Python 3.9 bug):
 ```python
-loop.set_exception_handler(lambda l, ctx: (
-    logger.debug("Client disconnected (ConnectionResetError, ignored)")
-    if isinstance(ctx.get("exception"), ConnectionResetError)
-    else l.default_exception_handler(ctx)
-))
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 ```
 
 ### 8. File Upload Size Limit

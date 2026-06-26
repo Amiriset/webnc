@@ -272,6 +272,21 @@ Compare two directories:
 5. Click any row to navigate to that location in the respective panel
 6. Use show-filter toggles (→ = ≠ ←) to filter results by action type
 
+#### NDC Tree Dialog
+Full-screen directory tree browser:
+1. Commands menu → NDC tree
+2. Arrow keys to navigate
+3. Enter to expand/collapse directories
+4. Double-click to navigate both panels to that location
+5. Lazy-loads subdirectories via `/api/tree`
+
+#### Directory Navigation
+- `.` entry: navigates to drive root (`/C/`, `/D/`)
+- `..` entry: navigates to parent directory
+- Both hidden at drive root (no parent)
+- `.` renders as `[.]` / `ROOT`
+- `..` renders as `↑..` / `UP--DIR`
+
 #### Directory Synchronization
 Synchronize directories (Total Commander style):
 1. Commands menu → Synchronize Directories

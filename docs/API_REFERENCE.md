@@ -44,6 +44,12 @@ Retrieve directory listing with sorting, filtering, and visibility options.
 }
 ```
 
+**Notes:**
+- Directory listings include `.` and `..` entries (frontend adds these, not backend)
+- `.` navigates to drive root, `..` navigates to parent directory
+- Both marked `_isParent: true` to skip selection/copy/delete operations
+- Hidden at drive root (no `parent` field in response)
+
 **Error Responses:**
 - 400: Invalid path or parameters
 - 401: Authentication required

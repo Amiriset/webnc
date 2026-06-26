@@ -51,7 +51,7 @@ This document provides a complete mapping of folders and files in the WebNC repo
 | `webnc/operations/` | Background operation classes and queue management |
 | `webnc/models/` | Pydantic data models for request/validation |
 | `webnc/security/` | Authentication, authorization, and TLS components |
-| `webnc/services/` | Business logic layer (planned for expansion) |
+| `webnc/services/` | Business logic layer (FileService ABC + WindowsFileService) |
 | `webnc/vfs/` | Virtual file system layer for path handling |
 
 ### API Module (webnc/api/)
@@ -124,7 +124,8 @@ This document provides a complete mapping of folders and files in the WebNC repo
 |-------------|-------------|
 | `webnc/services/__init__.py` | Package initialization |
 | `webnc/services/__pycache__/` | Compiled bytecode |
-| *(Currently empty - planned for future business logic)* |
+| `webnc/services/file_service.py` | FileService ABC with 14 abstract methods |
+| `webnc/services/windows_service.py` | WindowsFileService implementation (all business logic) |
 
 ## Frontend (client/)
 
@@ -164,6 +165,7 @@ This document provides a complete mapping of folders and files in the WebNC repo
 | `client/js/dialogs/SysInfoDialog.js` | System information dialog |
 | `client/js/dialogs/TimeoutsDialog.js` | Operation timeout/retry configuration dialog |
 | `client/js/dialogs/SyncDialog.js` | Directory synchronization dialog (Total Commander style) |
+| `client/js/dialogs/TreeDialog.js` | Full-screen NDC directory tree dialog |
 
 ### Frontend Library (client/js/lib/)
 
